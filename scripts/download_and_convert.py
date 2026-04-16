@@ -323,7 +323,15 @@ path: {root}/data/processed/yolo11_pose
 train: images/train
 val: images/val
 test: images/test
+
+# 0: double-20 corner (top) — flips to itself
+# 1: double-6 corner (right) — flips to double-11 (left)
+# 2: double-3 corner (bottom) — flips to itself
+# 3: double-11 corner (left) — flips to double-6 (right)
+# 4-6: dart tips — no symmetric mapping
+
 kpt_shape: [7, 3]
+flip_idx: [0, 3, 2, 1, 4, 5, 6]
 names:
   0: dartboard
 """,
@@ -332,16 +340,24 @@ path: {root}/data/processed/yolo11_detect
 train: images/train
 val: images/val
 test: images/test
+
 names:
   0: dartboard
   1: dart_tip
 """,
-        "dataset_calibration.yaml": f"""# Board calibration: 4 calibration keypoints
+        "dataset_calibration.yaml": f"""# Board calibration: 4 calibration keypoints only
 path: {root}/data/processed/board_calibration
 train: images/train
 val: images/val
 test: images/test
+
+# 0: double-20 corner (top) — flips to itself
+# 1: double-6 corner (right) — flips to double-11 (left)
+# 2: double-3 corner (bottom) — flips to itself
+# 3: double-11 corner (left) — flips to double-6 (right)
+
 kpt_shape: [4, 3]
+flip_idx: [0, 3, 2, 1]
 names:
   0: dartboard
 """,
