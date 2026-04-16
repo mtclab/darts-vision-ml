@@ -1,0 +1,17 @@
+version: "3.8"
+services:
+  train:
+    build: .
+    shm_size: 8g
+    volumes:
+      - ./data:/workspace/data
+      - ./runs:/workspace/runs
+      - ./models:/workspace/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: bash
