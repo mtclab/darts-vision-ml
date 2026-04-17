@@ -30,12 +30,19 @@ CLASS_MAP = {
 
 
 def download_dataset():
+    from huggingface_hub import snapshot_download
     from datasets import load_dataset
 
     print("[DOWNLOAD] Downloading bhabha-kapil/Dartboard-Detection-Dataset...")
-    print("[INFO] This is ~7.2 GB. First run will take 10-30 minutes.")
+    print("[INFO] Bulk-downloading repo (~7.2 GB). First run takes 10-30 minutes.")
 
-    ds = load_dataset("bhabha-kapil/Dartboard-Detection-Dataset")
+    local_dir = snapshot_download(
+        repo_id="bhabha-kapil/Dartboard-Detection-Dataset",
+        repo_type="dataset",
+    )
+
+    print(f"[INFO] Repo cached at {local_dir}")
+    ds = load_dataset(local_dir)
 
     print(f"[INFO] Dataset loaded. Splits: {list(ds.keys())}")
     for split, data in ds.items():
@@ -377,8 +384,13 @@ def main():
 
     if args.skip_download:
         print("[SKIP] Loading from cache...")
+        from huggingface_hub import snapshot_download
         from datasets import load_dataset
-        ds = load_dataset("bhabha-kapil/Dartboard-Detection-Dataset")
+        local_dir = snapshot_download(
+            repo_id="bhabha-kapil/Dartboard-Detection-Dataset",
+            repo_type="dataset",
+        )
+        ds = load_dataset(local_dir)
     else:
         ds = download_dataset()
 
