@@ -2,7 +2,7 @@ version: "3.8"
 services:
   train:
     build: .
-    shm_size: 8g
+    shm_size: 16g
     volumes:
       - ./data:/workspace/data
       - ./runs:/workspace/runs

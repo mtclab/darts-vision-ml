@@ -6,13 +6,22 @@ Simpler than pose model — just bounding boxes for dartboard and dart tips.
 Less precise (bbox center ≈ dart position) but easier to train and deploy.
 
 Usage:
-    python scripts/train_detect.py [--epochs 100] [--batch 16] [--gpu 0]
+    Single GPU:   python scripts/train_detect.py --gpu 0
+    Multi-GPU:   python scripts/train_detect.py --gpu 0,1,2,3
+    CPU:         python scripts/train_detect.py --gpu cpu
 """
 
 import argparse
 from pathlib import Path
 
 from ultralytics import YOLO
+
+
+def parse_device(device_str: str):
+    if device_str.lower() == "cpu":
+        return "cpu"
+    parts = [int(x.strip()) for x in device_str.split(",")]
+    return parts if len(parts) > 1 else parts[0]
 
 
 def train_detect(args):
@@ -23,7 +32,7 @@ def train_detect(args):
         epochs=args.epochs,
         batch=args.batch,
         imgsz=640,
-        device=args.gpu,
+        device=args.device,
         project="runs/detect",
         name="yolo11n_darts_detect",
         exist_ok=True,
@@ -70,11 +79,15 @@ def main():
     parser = argparse.ArgumentParser(description="Train YOLO11n-detection dart model")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch", type=int, default=16)
-    parser.add_argument("--gpu", type=str, default="0")
+    parser.add_argument("--gpu", type=str, default="0", help="GPU device(s): '0', '0,1,2,3', or 'cpu'")
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--export", action="store_true")
     parser.add_argument("--model", type=str, default=None)
     args = parser.parse_args()
+    args.device = parse_device(args.gpu)
+    if isinstance(args.device, list) and args.batch == 16:
+        args.batch = len(args.device) * 16
+        print(f"[DDP] {len(args.device)} GPUs detected, auto-scaling batch to {args.batch}")
 
     if args.validate_only:
         model_path = args.model or "runs/detect/yolo11n_darts_detect/weights/best.pt"

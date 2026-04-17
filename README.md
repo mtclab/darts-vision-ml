@@ -44,14 +44,20 @@ docker compose run train python scripts/download_and_convert.py
 
 # 4. Train models (needs GPU)
 
-# Primary: YOLO11n-pose (dart tips + calibration keypoints)
+# Single GPU (default):
 docker compose run train python scripts/train_pose.py --epochs 100 --batch 16
 
+# Multi-GPU DDP (4 GPUs, batch auto-scaled to 64):
+docker compose run train python scripts/train_pose.py --epochs 100 --gpu 0,1,2,3
+
+# Primary: YOLO11n-pose (dart tips + calibration keypoints)
+docker compose run train python scripts/train_pose.py --epochs 100 --gpu 0,1,2,3
+
 # Alternative: YOLO11n-detect (bounding boxes only)
-docker compose run train python scripts/train_detect.py --epochs 100 --batch 16
+docker compose run train python scripts/train_detect.py --epochs 100 --gpu 0,1,2,3
 
 # Board calibration keypoints (replaces CV BoardDetector)
-docker compose run train python scripts/train_calibration.py --epochs 100 --batch 16
+docker compose run train python scripts/train_calibration.py --epochs 100 --gpu 0,1,2,3
 
 # 5. Export to TFLite for Android
 docker compose run train python scripts/export_tflite.py --all
@@ -70,7 +76,10 @@ pip install -r requirements.txt
 python scripts/download_and_convert.py
 
 # Train (requires GPU for reasonable speed)
+# Single GPU:
 python scripts/train_pose.py --epochs 100 --batch 16 --gpu 0
+# Multi-GPU DDP (4 GPUs, batch auto-scaled to 64):
+python scripts/train_pose.py --epochs 100 --gpu 0,1,2,3
 
 # Export
 python scripts/export_tflite.py --all
@@ -97,6 +106,20 @@ The `download_and_convert.py` script converts the source format into:
 3. **board_calibration/** — One `dartboard` class, 4 calibration keypoints only
 
 ## Training Details
+
+### Multi-GPU Training
+
+All training scripts support multi-GPU DDP via Ultralytics. Pass comma-separated GPU IDs to `--gpu`:
+
+```bash
+# Use 4 GPUs — batch auto-scales to 64 (16 per GPU)
+python scripts/train_pose.py --gpu 0,1,2,3
+
+# Override batch size manually
+python scripts/train_pose.py --gpu 0,1,2,3 --batch 128
+```
+
+Ultralytics handles DDP subprocess spawning automatically. `docker-compose.yml` sets `shm_size: 16g` for DDP shared memory.
 
 ### YOLO11n-pose (Recommended)
 
