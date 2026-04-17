@@ -56,7 +56,7 @@ def train_pose(args):
         erasing=0.4,
     )
 
-    print(f"\n[TRAIN] Best model: {runs/pose/yolo11n_darts_pose/weights/best.pt}")
+    print(f"\n[TRAIN] Best model: 'runs/pose/yolo11n_darts_pose/weights/best.pt'")
     print(f"[VAL]   Results: {results}")
 
     return results
