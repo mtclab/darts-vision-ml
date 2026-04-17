@@ -42,7 +42,7 @@ def train_calibration(args):
         project="runs/calibration",
         name="yolo11n_board_calibration",
         exist_ok=True,
-        patience=20,
+        patience=50,
         save_period=10,
         val=True,
         plots=True,
@@ -59,7 +59,7 @@ def train_calibration(args):
         mixup=0.1,
     )
 
-    print(f"\n[TRAIN] Best model: runs/calibration/yolo11n_board_calibration/weights/best.pt")
+    print(f"\n[TRAIN] Best model: 'runs/calibration/yolo11n_board_calibration/weights/best.pt'")
     return results
 
 
