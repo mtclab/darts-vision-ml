@@ -37,7 +37,7 @@ def train_pose(args):
         project="runs/pose",
         name="yolo11n_darts_pose",
         exist_ok=True,
-        patience=50,
+        patience=25,
         save_period=10,
         val=True,
         plots=True,
