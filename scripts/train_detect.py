@@ -36,7 +36,7 @@ def train_detect(args):
         project="runs/detect",
         name="yolo11n_darts_detect",
         exist_ok=True,
-        patience=50,
+        patience=25,
         save_period=10,
         val=True,
         plots=True,
