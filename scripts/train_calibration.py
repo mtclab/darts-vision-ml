@@ -42,7 +42,7 @@ def train_calibration(args):
         project="runs/calibration",
         name="yolo11n_board_calibration",
         exist_ok=True,
-        patience=50,
+        patience=25,
         save_period=10,
         val=True,
         plots=True,
