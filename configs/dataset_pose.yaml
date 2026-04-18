@@ -1,21 +1,10 @@
-# YOLO11-pose: dart tips + calibration keypoints
-# Run training from the repo root: python scripts/train_pose.py
-path: /workspace/data/processed/yolo11_pose
+path: /home/kasm-user/repot/darts-vision-ml/data/processed/yolo11_pose
 train: images/train
 val: images/val
 test: images/test
 
-# Keypoint definitions
-# 0: double-20 corner (top center)    — flips to itself (vertical axis)
-# 1: double-6 corner (right)          — flips to double-11 (left)
-# 2: double-3 corner (bottom)         — flips to itself (vertical axis)
-# 3: double-11 corner (left)          — flips to double-6 (right)
-# 4: dart_tip_1                       — no symmetric mapping
-# 5: dart_tip_2                       — no symmetric mapping
-# 6: dart_tip_3                       — no symmetric mapping
-
-kpt_shape: [7, 3]  # 7 keypoints, each with (x, y, visibility)
-flip_idx: [0, 3, 2, 1, 4, 5, 6]  # Horizontal flip mapping: double-6↔double-11 swap
+kpt_shape: [7, 3]
+flip_idx: [0, 3, 2, 1, 4, 5, 6]
 
 names:
   0: dartboard

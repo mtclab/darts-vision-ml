@@ -4,9 +4,7 @@ services:
     build: .
     shm_size: 16g
     volumes:
-      - ./data:/workspace/data
-      - ./runs:/workspace/runs
-      - ./models:/workspace/models
+      - .:/workspace
     deploy:
       resources:
         reservations:
@@ -14,4 +12,5 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    working_dir: /workspace
     command: bash

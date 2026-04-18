@@ -52,7 +52,6 @@ def train_pose(args):
         fliplr=0.5,
         mosaic=1.0,
         mixup=0.1,
-        copy_paste=0.3,
         erasing=0.4,
     )
 

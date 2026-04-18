@@ -1,18 +1,10 @@
-# Board calibration: 4 calibration keypoints only
-# Run training from the repo root: python scripts/train_calibration.py
-path: /workspace/data/processed/board_calibration
+path: /home/kasm-user/repot/darts-vision-ml/data/processed/board_calibration
 train: images/train
 val: images/val
 test: images/test
 
-# Keypoint definitions (calibration corners of the dartboard)
-# 0: double-20 corner (top center)    — flips to itself
-# 1: double-6 corner (right)          — flips to double-11 (left)
-# 2: double-3 corner (bottom center)  — flips to itself
-# 3: double-11 corner (left)          — flips to double-6 (right)
-
-kpt_shape: [4, 3]  # 4 keypoints, each with (x, y, visibility)
-flip_idx: [0, 3, 2, 1]  # Horizontal flip: double-6↔double-11 swap
+kpt_shape: [4, 3]
+flip_idx: [0, 3, 2, 1]
 
 names:
   0: dartboard
