@@ -1,6 +1,6 @@
 # Board calibration: 4 calibration keypoints only
 # Run training from the repo root: python scripts/train_calibration.py
-path: ./data/processed/board_calibration
+path: /home/kasm-user/repot/data/processed/board_calibration
 train: images/train
 val: images/val
 test: images/test
