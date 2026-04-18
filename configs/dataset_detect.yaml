@@ -1,6 +1,6 @@
 # YOLO11-detect: dartboard + dart tip bounding boxes
 # Run training from the repo root: python scripts/train_detect.py
-path: /home/kasm-user/repot/data/processed/yolo11_detect
+path: /workspace/data/processed/yolo11_detect
 train: images/train
 val: images/val
 test: images/test

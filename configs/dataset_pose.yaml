@@ -1,6 +1,6 @@
 # YOLO11-pose: dart tips + calibration keypoints
 # Run training from the repo root: python scripts/train_pose.py
-path: /home/kasm-user/repot/data/processed/yolo11_pose
+path: /workspace/data/processed/yolo11_pose
 train: images/train
 val: images/val
 test: images/test
