@@ -8,7 +8,7 @@ Detects double-20, double-6, double-3, double-11 corners for perspective correct
 Usage:
     python scripts/train_board_calibration.py --gpu 0
     python scripts/train_board_calibration.py --gpu 0,1,2,3
-    python scripts/train_board_calibration.py --resume runs/board_calibration/weights/last.pt
+    python scripts/train_board_calibration.py --resume runs/board_calibration/train/weights/last.pt
 """
 
 import argparse
@@ -18,7 +18,7 @@ from ultralytics import YOLO
 
 from train_utils import ensure_pretrained, parse_device, validate_dataset
 
-RUN_DIR = "runs/board_calibration"
+RUN_DIR = Path.cwd() / "runs" / "board_calibration"
 CONFIG = "configs/dataset_calibration.yaml"
 
 
@@ -35,8 +35,8 @@ def train_board_calibration(args):
         batch=args.batch,
         imgsz=640,
         device=args.device,
-        project=RUN_DIR,
-        name="weights",
+        project=str(RUN_DIR),
+        name="train",
         exist_ok=True,
         patience=25,
         save_period=10,
@@ -55,7 +55,7 @@ def train_board_calibration(args):
         mixup=0.1,
     )
 
-    print(f"\n[TRAIN] Best model: {RUN_DIR}/weights/best.pt")
+    print(f"\n[TRAIN] Best model: {RUN_DIR / 'train' / 'weights' / 'best.pt'}")
     return results
 
 
@@ -85,7 +85,7 @@ def main():
         print(f"[DDP] {len(args.device)} GPUs detected, auto-scaling batch to {args.batch}")
 
     if args.validate_only:
-        model_path = args.model or f"{RUN_DIR}/weights/best.pt"
+        model_path = args.model or str(RUN_DIR / "train" / "weights" / "best.pt")
         validate(model_path)
         return
 

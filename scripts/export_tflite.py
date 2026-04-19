@@ -5,7 +5,7 @@ Export trained YOLO11 models to TFLite for Android deployment.
 Usage:
     python scripts/export_tflite.py                  # export recommended models (calibration + pose)
     python scripts/export_tflite.py --all            # export all trained models
-    python scripts/export_tflite.py --model runs/board_calibration/weights/best.pt
+    python scripts/export_tflite.py --model runs/board_calibration/train/weights/best.pt
     python scripts/export_tflite.py --all --int8     # INT8 quantized
 """
 
@@ -19,9 +19,9 @@ MODELS_DIR = Path("models")
 ANDROID_ASSETS = Path("../darts_vision/app/src/main/assets/models")
 
 MODELS = {
-    "board_calibration": Path("runs/board_calibration/weights/best.pt"),
-    "darts_pose": Path("runs/darts_pose/weights/best.pt"),
-    "darts_detect": Path("runs/darts_detect/weights/best.pt"),
+    "board_calibration": Path("runs/board_calibration/train/weights/best.pt"),
+    "darts_pose": Path("runs/darts_pose/train/weights/best.pt"),
+    "darts_detect": Path("runs/darts_detect/train/weights/best.pt"),
 }
 
 RECOMMENDED = ["board_calibration", "darts_pose"]

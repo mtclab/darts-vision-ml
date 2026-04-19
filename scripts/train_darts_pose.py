@@ -8,7 +8,7 @@ reference frame is available for frame-differencing.
 Usage:
     python scripts/train_darts_pose.py --gpu 0
     python scripts/train_darts_pose.py --gpu 0,1,2,3
-    python scripts/train_darts_pose.py --resume runs/darts_pose/weights/last.pt
+    python scripts/train_darts_pose.py --resume runs/darts_pose/train/weights/last.pt
 """
 
 import argparse
@@ -18,7 +18,7 @@ from ultralytics import YOLO
 
 from train_utils import ensure_pretrained, parse_device, validate_dataset
 
-RUN_DIR = "runs/darts_pose"
+RUN_DIR = Path.cwd() / "runs" / "darts_pose"
 CONFIG = "configs/dataset_pose.yaml"
 
 
@@ -35,8 +35,8 @@ def train_darts_pose(args):
         batch=args.batch,
         imgsz=640,
         device=args.device,
-        project=RUN_DIR,
-        name="weights",
+        project=str(RUN_DIR),
+        name="train",
         exist_ok=True,
         patience=25,
         save_period=10,
@@ -56,7 +56,7 @@ def train_darts_pose(args):
         erasing=0.4,
     )
 
-    print(f"\n[TRAIN] Best model: {RUN_DIR}/weights/best.pt")
+    print(f"\n[TRAIN] Best model: {RUN_DIR / 'train' / 'weights' / 'best.pt'}")
     print(f"[VAL]   Results: {results}")
     return results
 
@@ -89,7 +89,7 @@ def main():
         print(f"[DDP] {len(args.device)} GPUs detected, auto-scaling batch to {args.batch}")
 
     if args.validate_only:
-        model_path = args.model or f"{RUN_DIR}/weights/best.pt"
+        model_path = args.model or str(RUN_DIR / "train" / "weights" / "best.pt")
         validate(model_path)
         return
 

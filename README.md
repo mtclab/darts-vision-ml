@@ -84,7 +84,7 @@ docker compose run train python scripts/train_darts_pose.py --epochs 100 --gpu 0
 
 Resume interrupted training:
 ```bash
-docker compose run train python scripts/train_darts_pose.py --resume runs/darts_pose/weights/last.pt
+docker compose run train python scripts/train_darts_pose.py --resume runs/darts_pose/train/weights/last.pt
 ```
 
 ### 5. Export to TFLite
@@ -100,7 +100,7 @@ docker compose run train python scripts/export_tflite.py --int8
 docker compose run train python scripts/export_tflite.py --all
 
 # Single model
-docker compose run train python scripts/export_tflite.py --model runs/board_calibration/weights/best.pt
+docker compose run train python scripts/export_tflite.py --model runs/board_calibration/train/weights/best.pt
 ```
 
 ### 6. Copy to Android app
@@ -167,7 +167,7 @@ Images are symlinked (not copied) to save disk space.
 - **Architecture:** YOLO11 nano pose (4 keypoints only)
 - **Keypoints:** double-20, double-6, double-3, double-11 corners
 - **More rotation augmentation (+-30 deg)** since calibration needs angle invariance
-- **Output:** `runs/board_calibration/weights/best.pt`
+- **Output:** `runs/board_calibration/train/weights/best.pt`
 
 ### Darts Pose (Fallback)
 
@@ -175,13 +175,13 @@ Images are symlinked (not copied) to save disk space.
 - **Input:** 640x640
 - **Keypoints:** 7 per board (4 calibration + 3 dart tips)
 - **Augmentation:** HSV jitter, rotation, flip, mosaic, mixup, erasing
-- **Output:** `runs/darts_pose/weights/best.pt`
+- **Output:** `runs/darts_pose/train/weights/best.pt`
 
 ### Darts Detect (Alternative)
 
 - **Architecture:** YOLO11 nano detection
 - **Classes:** dartboard (bbox), dart_tip (small bbox ~20x20 px)
-- **Output:** `runs/darts_detect/weights/best.pt`
+- **Output:** `runs/darts_detect/train/weights/best.pt`
 
 ### Multi-GPU DDP
 
@@ -231,9 +231,9 @@ darts-vision-ml/
       yolo11_detect/
   weights/                          # Pretrained YOLO weights (auto-downloaded, gitignored)
   runs/                             # Training runs (generated)
-    board_calibration/weights/
-    darts_pose/weights/
-    darts_detect/weights/
+    board_calibration/train/weights/
+    darts_pose/train/weights/
+    darts_detect/train/weights/
   models/                           # Exported TFLite (generated)
 ```
 
@@ -256,5 +256,5 @@ docker compose run train python scripts/download_and_convert.py
 
 **Resume interrupted training** — All scripts support `--resume`:
 ```bash
-docker compose run train python scripts/train_darts_pose.py --resume runs/darts_pose/weights/last.pt
+docker compose run train python scripts/train_darts_pose.py --resume runs/darts_pose/train/weights/last.pt
 ```

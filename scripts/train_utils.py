@@ -9,11 +9,21 @@ WEIGHTS_DIR = Path("weights")
 def ensure_pretrained(name: str) -> str:
     WEIGHTS_DIR.mkdir(exist_ok=True)
     dest = WEIGHTS_DIR / name
-    if not dest.exists():
-        model = YOLO(name)
-        src = Path(model.ckpt_path)
-        if src.exists() and src != dest:
-            shutil.move(str(src), str(dest))
+    if dest.exists():
+        return str(dest)
+
+    model = YOLO(name)
+    actual = Path(model.ckpt_path)
+
+    if actual.exists() and actual.resolve() != dest.resolve():
+        shutil.move(str(actual), str(dest))
+    elif not dest.exists():
+        cwd_copy = Path.cwd() / name
+        if cwd_copy.exists() and cwd_copy.resolve() != dest.resolve():
+            shutil.move(str(cwd_copy), str(dest))
+        else:
+            shutil.copy2(str(actual), str(dest))
+
     return str(dest)
 
 
