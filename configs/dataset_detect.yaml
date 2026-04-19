@@ -1,8 +1,0 @@
-path: /home/kasm-user/repot/darts-vision-ml/data/processed/yolo11_detect
-train: images/train
-val: images/val
-test: images/test
-
-names:
-  0: dartboard
-  1: dart_tip

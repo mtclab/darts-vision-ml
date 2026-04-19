@@ -17,6 +17,20 @@ from pathlib import Path
 
 from ultralytics import YOLO
 
+WEIGHTS_DIR = Path("weights")
+
+
+def ensure_pretrained(name: str) -> str:
+    WEIGHTS_DIR.mkdir(exist_ok=True)
+    dest = WEIGHTS_DIR / name
+    if not dest.exists():
+        model = YOLO(name)
+        src = Path(model.ckpt_path)
+        if src.exists() and src != dest:
+            import shutil
+            shutil.move(str(src), str(dest))
+    return str(dest)
+
 
 def parse_device(device_str: str):
     if device_str.lower() == "cpu":
@@ -26,7 +40,24 @@ def parse_device(device_str: str):
 
 
 def train_pose(args):
-    model = YOLO("yolo11n-pose.pt")
+    config_path = Path("configs/dataset_pose.yaml").resolve()
+    if not config_path.exists():
+        print(f"[ERROR] Config not found: {config_path}")
+        print("Run: python scripts/download_and_convert.py")
+        return None
+
+    import yaml
+    with open(config_path) as f:
+        ds_cfg = yaml.safe_load(f)
+    ds_path = Path(ds_cfg["path"])
+    if not ds_path.exists():
+        print(f"[ERROR] Dataset path not found: {ds_path}")
+        print(f"Config points to: {ds_cfg['path']}")
+        print("Re-run inside Docker: python scripts/download_and_convert.py")
+        return None
+
+    weights = ensure_pretrained("yolo11n-pose.pt")
+    model = YOLO(weights)
 
     results = model.train(
         data=str(Path("configs/dataset_pose.yaml").resolve()),
@@ -108,7 +139,9 @@ def main():
 
     if args.resume:
         model = YOLO(args.resume)
-        model.train(resume=True)
+        results = model.train(resume=True)
+        print(f"\n[RESUME] Continued from: {args.resume}")
+        print(f"[VAL]   Results: {results}")
         return
 
     results = train_pose(args)

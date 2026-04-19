@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import os
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +38,16 @@ D2_VAL = ["d2_02_03_2021", "d2_02_05_2021"]
 D2_TEST = ["d2_03_03_2020", "d2_02_10_2021", "d2_02_03_2021_2"]
 
 BBOX_SIZE = 0.025
+
+
+def clean_processed():
+    for subdir in ["yolo11_pose", "yolo11_detect", "board_calibration"]:
+        target = PROCESSED_DIR / subdir
+        if target.exists():
+            shutil.rmtree(target)
+            print(f"[CLEAN] Removed {target}")
+    if PROCESSED_DIR.exists() and not any(PROCESSED_DIR.iterdir()):
+        PROCESSED_DIR.rmdir()
 
 
 def load_and_split(split_filter):
@@ -290,6 +301,8 @@ def main():
     splits = load_and_split(args.split)
     total = sum(len(s) for s in splits.values())
     print(f"[INFO] {total} images: train={len(splits['train'])}, val={len(splits['val'])}, test={len(splits['test'])}")
+
+    clean_processed()
 
     if args.split == "d1":
         val_folders, test_folders = D1_VAL, D1_TEST

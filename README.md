@@ -2,6 +2,16 @@
 
 Training pipelines for darts detection models. Uses the [DeepDarts dataset](https://github.com/wmcnally/deep-darts) (16k images, McNally et al.) to train YOLO11 variants for the DartsVision Android app.
 
+## Recommended Pipeline
+
+```
+1. ML Board Calibration (#3)  → 4 keypoints → homography → geometry
+2. Frame Differencing (#4)    → reference frame (empty board) → isolate darts
+3. Optional: YOLO11n-pose (#1) → when no reference frame available
+```
+
+See [docs/approaches.md](docs/approaches.md) for full comparison.
+
 ## Quick Start (Docker + GPU)
 
 ### 1. Download the DeepDarts dataset
@@ -38,35 +48,54 @@ data/raw/deep-darts/dataset/
 docker compose build
 ```
 
-### 3. Convert dataset (inside Docker)
+### 3. Convert dataset (inside Docker — required)
 
-**Important:** Conversion must run inside the Docker container so symlinks and config paths use `/workspace/` (the container path), not the host path.
+**Critical:** Conversion **must** run inside the Docker container. Symlinks and `configs/dataset_*.yaml` use absolute paths from the conversion environment. If you convert on the host, the paths won't exist inside Docker and training will fail.
 
 ```bash
 docker compose run train python scripts/download_and_convert.py
 ```
 
-This creates symlinks + YOLO11 label files in `data/processed/` and regenerates `configs/dataset_*.yaml` with correct paths.
+This creates symlinks + YOLO11 label files in `data/processed/` and generates `configs/dataset_*.yaml` with `/workspace/...` paths. Re-running cleans old data first.
 
 ### 4. Train models
 
+Train **calibration** first (primary model), then **pose** (optional enhancement):
+
 ```bash
-# Single GPU
-docker compose run train python scripts/train_pose.py --epochs 100 --batch 16 --gpu 0
-
-# Multi-GPU DDP (batch auto-scales)
-docker compose run train python scripts/train_pose.py --epochs 100 --gpu 0,1,2,3
-
-# All three models:
-docker compose run train python scripts/train_pose.py --epochs 100 --gpu 0
-docker compose run train python scripts/train_detect.py --epochs 100 --gpu 0
+# Primary: board calibration (replaces CV BoardDetector)
 docker compose run train python scripts/train_calibration.py --epochs 100 --gpu 0
+
+# Optional: full pose model (single-frame dart detection fallback)
+docker compose run train python scripts/train_pose.py --epochs 100 --gpu 0
+
+# Alternative: bbox-only detection (skip unless needed)
+docker compose run train python scripts/train_detect.py --epochs 100 --gpu 0
+```
+
+Each script validates that `configs/dataset_*.yaml` exists and the dataset path is accessible before training. If validation fails, re-run step 3.
+
+Multi-GPU DDP (batch auto-scales):
+```bash
+docker compose run train python scripts/train_pose.py --epochs 100 --gpu 0,1,2,3
+```
+
+Resume interrupted training:
+```bash
+docker compose run train python scripts/train_pose.py --resume runs/pose/yolo11n_darts_pose/weights/last.pt
 ```
 
 ### 5. Export to TFLite
 
 ```bash
+# Export all trained models
 docker compose run train python scripts/export_tflite.py --all
+
+# INT8 quantized (smaller, faster)
+docker compose run train python scripts/export_tflite.py --all --int8
+
+# Single model
+docker compose run train python scripts/export_tflite.py --model runs/pose/yolo11n_darts_pose/weights/best.pt
 ```
 
 ### 6. Copy to Android app
@@ -82,19 +111,20 @@ If you have CUDA + Python on the host:
 ```bash
 pip install -r requirements.txt
 python scripts/download_and_convert.py   # creates symlinks + configs for THIS machine
+python scripts/train_calibration.py --epochs 100 --gpu 0
 python scripts/train_pose.py --epochs 100 --gpu 0
 python scripts/export_tflite.py --all
 ```
 
-**Note:** If you switch between Docker and local Python, re-run `download_and_convert.py` — it regenerates symlinks and configs with the correct paths for the current environment.
+**Note:** If you switch between Docker and local Python, re-run `download_and_convert.py` — it cleans old data and regenerates symlinks + configs with the correct paths for the current environment.
 
 ## Approaches
 
 | # | Model | What It Detects | Precision | Size | Use Case |
 |---|-------|---------------|-----------|------|----------|
-| 1 | **YOLO11n-pose** | Board + 7 keypoints (4 cal + 3 dart tips) | ~2 deg | ~6 MB | Primary: dart + board detection with keypoint accuracy |
-| 2 | **YOLO11n-detect** | Board bbox + dart tip bbox | ~5 deg | ~4 MB | Simpler: bbox-only, less precise dart tip |
-| 3 | **Board calibration** | Board + 4 calibration keypoints | ~1 deg | ~5 MB | Replace CV BoardDetector with ML |
+| 1 | **YOLO11n-pose** | Board + 7 keypoints (4 cal + 3 dart tips) | ~2 deg | ~6 MB | Optional: single-frame dart detection fallback |
+| 2 | **YOLO11n-detect** | Board bbox + dart tip bbox | ~5 deg | ~4 MB | Alternative: bbox-only, less precise |
+| 3 | **Board calibration** | Board + 4 calibration keypoints | ~1 deg | ~5 MB | **Primary:** replaces CV BoardDetector |
 
 ## Dataset
 
@@ -127,7 +157,14 @@ Images are symlinked (not copied) to save disk space.
 
 ## Training Details
 
-### YOLO11n-pose (Recommended)
+### Board Calibration (Primary)
+
+- **Architecture:** YOLO11 nano pose (4 keypoints only)
+- **Keypoints:** double-20, double-6, double-3, double-11 corners
+- **More rotation augmentation (+-30 deg)** since calibration needs angle invariance
+- **Output:** `runs/calibration/yolo11n_board_calibration/weights/best.pt`
+
+### YOLO11n-pose (Optional Fallback)
 
 - **Architecture:** YOLO11 nano with pose head
 - **Input:** 640x640
@@ -135,18 +172,11 @@ Images are symlinked (not copied) to save disk space.
 - **Augmentation:** HSV jitter, rotation, flip, mosaic, mixup, erasing
 - **Output:** `runs/pose/yolo11n_darts_pose/weights/best.pt`
 
-### YOLO11n-detect (Simpler)
+### YOLO11n-detect (Alternative)
 
 - **Architecture:** YOLO11 nano detection
 - **Classes:** dartboard (bbox), dart_tip (small bbox ~20x20 px)
 - **Output:** `runs/detect/yolo11n_darts_detect/weights/best.pt`
-
-### Board Calibration
-
-- **Architecture:** YOLO11 nano pose (4 keypoints only)
-- **Keypoints:** double-20, double-6, double-3, double-11 corners
-- **More rotation augmentation (+-30 deg)** since calibration needs angle invariance
-- **Output:** `runs/calibration/yolo11n_board_calibration/weights/best.pt`
 
 ### Multi-GPU DDP
 
@@ -184,31 +214,46 @@ darts-vision-ml/
   docker-compose.yml
   requirements.txt
   configs/                       # Auto-generated by download_and_convert.py
-    dataset_pose.yaml
+    dataset_pose.yaml            #   (gitignored — environment-specific paths)
     dataset_detect.yaml
     dataset_calibration.yaml
   scripts/
-    download_and_convert.py
-    train_pose.py
-    train_detect.py
-    train_calibration.py
-    export_tflite.py
+    download_and_convert.py      # Dataset conversion + config generation
+    train_pose.py                # Train YOLO11n-pose (7 keypoints)
+    train_detect.py              # Train YOLO11n-detect (bbox)
+    train_calibration.py         # Train board calibration (4 keypoints)
+    export_tflite.py             # Export .pt → .tflite
   data/
     raw/deep-darts/dataset/      # Source dataset (extract manually)
       labels.pkl
       cropped_images/
-    processed/                    # Symlinks + labels (generated)
+    processed/                    # Symlinks + labels (generated, cleaned on re-run)
       yolo11_pose/
       yolo11_detect/
       board_calibration/
+  weights/                        # Pretrained YOLO weights (auto-downloaded, gitignored)
   runs/                           # Training runs (generated)
   models/                         # Exported TFLite (generated)
 ```
 
 ## Troubleshooting
 
-**Symlinks broken?** Re-run `python scripts/download_and_convert.py` inside the same environment (Docker or local) where you'll train. Symlinks use absolute paths from the conversion machine.
+**`[ERROR] Dataset path not found`** — The `configs/dataset_*.yaml` has paths from a different environment. Re-run conversion inside Docker:
+```bash
+docker compose run train python scripts/download_and_convert.py
+```
 
-**CUDA OOM?** Reduce batch: `--batch 8` or `--batch 4`.
+**`[ERROR] Config not found`** — You haven't run dataset conversion yet. See step 3 above.
 
-**Docker can't see GPU?** Ensure [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) is installed.
+**Pretrained `.pt` files in repo root** — Fixed. Pretrained weights now download to `weights/` (gitignored). If you see `.pt` files in root, they can be deleted.
+
+**Symlinks broken?** — Re-run `python scripts/download_and_convert.py` inside the same environment (Docker or local) where you'll train. Symlinks use absolute paths from the conversion machine.
+
+**CUDA OOM?** — Reduce batch: `--batch 8` or `--batch 4`.
+
+**Docker can't see GPU?** — Ensure [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) is installed.
+
+**Resume interrupted training** — All scripts support `--resume <path_to_last.pt>`:
+```bash
+docker compose run train python scripts/train_pose.py --resume runs/pose/yolo11n_darts_pose/weights/last.pt
+```

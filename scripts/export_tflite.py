@@ -27,7 +27,12 @@ def export_model(model_path: str, int8: bool = False, copy_to_android: bool = Fa
         int8=int8,
     )
 
-    dest = MODELS_DIR / Path(export_path).name
+    export_path = Path(export_path)
+    if not export_path.exists():
+        print(f"[ERROR] Export file not found: {export_path}")
+        return None
+
+    dest = MODELS_DIR / export_path.name
     MODELS_DIR.mkdir(exist_ok=True)
     shutil.copy2(str(export_path), str(dest))
 

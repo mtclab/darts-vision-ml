@@ -16,6 +16,20 @@ from pathlib import Path
 
 from ultralytics import YOLO
 
+WEIGHTS_DIR = Path("weights")
+
+
+def ensure_pretrained(name: str) -> str:
+    WEIGHTS_DIR.mkdir(exist_ok=True)
+    dest = WEIGHTS_DIR / name
+    if not dest.exists():
+        model = YOLO(name)
+        src = Path(model.ckpt_path)
+        if src.exists() and src != dest:
+            import shutil
+            shutil.move(str(src), str(dest))
+    return str(dest)
+
 
 def parse_device(device_str: str):
     if device_str.lower() == "cpu":
@@ -25,7 +39,24 @@ def parse_device(device_str: str):
 
 
 def train_detect(args):
-    model = YOLO("yolo11n.pt")
+    config_path = Path("configs/dataset_detect.yaml").resolve()
+    if not config_path.exists():
+        print(f"[ERROR] Config not found: {config_path}")
+        print("Run: python scripts/download_and_convert.py")
+        return None
+
+    import yaml
+    with open(config_path) as f:
+        ds_cfg = yaml.safe_load(f)
+    ds_path = Path(ds_cfg["path"])
+    if not ds_path.exists():
+        print(f"[ERROR] Dataset path not found: {ds_path}")
+        print(f"Config points to: {ds_cfg['path']}")
+        print("Re-run inside Docker: python scripts/download_and_convert.py")
+        return None
+
+    weights = ensure_pretrained("yolo11n.pt")
+    model = YOLO(weights)
 
     results = model.train(
         data=str(Path("configs/dataset_detect.yaml").resolve()),
@@ -83,6 +114,7 @@ def main():
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--export", action="store_true")
     parser.add_argument("--model", type=str, default=None)
+    parser.add_argument("--resume", type=str, default=None, help="Path to resume training from")
     args = parser.parse_args()
     args.device = parse_device(args.gpu)
     if isinstance(args.device, list) and args.batch == 16:
@@ -97,6 +129,13 @@ def main():
     if args.export:
         model_path = args.model or "runs/detect/yolo11n_darts_detect/weights/best.pt"
         export_tflite(model_path)
+        return
+
+    if args.resume:
+        model = YOLO(args.resume)
+        results = model.train(resume=True)
+        print(f"\n[RESUME] Continued from: {args.resume}")
+        print(f"[VAL]   Results: {results}")
         return
 
     train_detect(args)

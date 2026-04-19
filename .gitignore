@@ -17,6 +17,9 @@ env/
 data/raw/
 data/processed/
 
+# Auto-generated configs (paths are environment-specific)
+configs/dataset_*.yaml
+
 # Model artifacts
 runs/
 weights/
