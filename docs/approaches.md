@@ -4,9 +4,9 @@ Detailed comparison of each detection approach that can be trained from the Deep
 
 ---
 
-## Approach 1: YOLO11n-pose (Dart Tips + Calibration Keypoints)
+## Approach 1: Darts Pose (Dart Tips + Calibration Keypoints)
 
-**Model:** `yolo11n-pose.pt` → `yolov8n_darts.tflite` (~6 MB)
+**Model:** `yolo11n-pose.pt` → `darts_pose_float32.tflite` (~6 MB)
 
 ### What it does
 Detects the dartboard as a single object with 7 keypoints:
@@ -28,13 +28,13 @@ Detects the dartboard as a single object with 7 keypoints:
 - **Accuracy depends on dataset diversity** — 16k face-on images, only 830 multi-angle
 
 ### When to use
-**Primary detection method.** Best accuracy for dart scoring. Trained once, deploy forever.
+**Fallback detection method.** When no reference frame is available for frame-differencing. Single-frame dart detection with good accuracy.
 
 ---
 
-## Approach 2: YOLO11n-detect (Bounding Boxes)
+## Approach 2: Darts Detect (Bounding Boxes)
 
-**Model:** `yolo11n.pt` → `yolov8n_darts_detect.tflite` (~4 MB)
+**Model:** `yolo11n.pt` → `darts_detect_float32.tflite` (~4 MB)
 
 ### What it does
 Detects two classes with bounding boxes:
@@ -53,13 +53,13 @@ Detects two classes with bounding boxes:
 - **Still need CV BoardDetector** for geometry (or separate calibration model)
 
 ### When to use
-When keypoint precision isn't critical, or as a fallback when pose model fails.
+Alternative to darts pose when keypoint detection is unavailable. Less precise but simpler.
 
 ---
 
-## Approach 3: Board Calibration Keypoints Only
+## Approach 3: Board Calibration (Keypoints Only)
 
-**Model:** `yolo11n-pose.pt` → `board_calibration.tflite` (~5 MB)
+**Model:** `yolo11n-pose.pt` → `board_calibration_float32.tflite` (~5 MB)
 
 ### What it does
 Detects the dartboard with exactly 4 calibration keypoints (no dart tips).
@@ -77,7 +77,7 @@ Computes homography from the 4 corner points.
 - **Less training signal** — no dart tip annotations used
 
 ### When to use
-Pair with frame-differencing. Board calibration gives geometry, frame-diff finds darts.
+**Primary model.** Pair with frame-differencing. Board calibration gives geometry, frame-diff finds darts.
 This is the **best combo**: #3 for board + frame-diff for darts = no per-frame CV needed.
 
 ---
@@ -107,7 +107,7 @@ This is the **best combo**: #3 for board + frame-diff for darts = no per-frame C
 - **Board vibration** — dart impact causes micro-shift, creating false diff regions
 
 ### When to use
-**Always.** This is the current primary method. Combine with ML board calibration (#3)
+**Always.** This is the current primary dart detection method. Combine with ML board calibration (#3)
 for best results. Frame-diff + ML geometry = "point camera at board → instant score."
 
 ---
@@ -118,7 +118,7 @@ for best results. Frame-diff + ML geometry = "point camera at board → instant 
 ┌──────────────────────────────────────────────┐
 │              RECOMMENDED PIPELINE              │
 │                                                │
-│  1. ML Board Calibration (#3)                 │
+│  1. Board Calibration (#3)                    │
 │     → 4 keypoints → homography → geometry      │
 │     → Replaces CV BoardDetector                │
 │                                                │
@@ -127,7 +127,7 @@ for best results. Frame-diff + ML geometry = "point camera at board → instant 
 │     → Diff current frame → isolate darts       │
 │     → Contour detection in diff image          │
 │                                                │
-│  3. Optional: YOLO11n-pose (#1)               │
+│  3. Optional: Darts Pose (#1)                 │
 │     → When no reference frame available        │
 │     → Single-frame dart detection              │
 │     → Lower accuracy than frame-diff           │
@@ -140,6 +140,6 @@ for best results. Frame-diff + ML geometry = "point camera at board → instant 
 
 1. **Frame-diff is the proven technique** (Autodarts, Domazet 2023)
 2. **ML board detection is more robust** than CV ellipse fitting
-3. **YOLO11n-pose as fallback** when reference isn't available
+3. **Darts pose as fallback** when reference isn't available
 4. **No model required for primary path** — frame-diff is pure CV
 5. **ML models are optional** — app works without them, better with them

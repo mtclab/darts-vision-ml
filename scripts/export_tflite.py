@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Export trained YOLO11 models to TFLite format for Android deployment.
+Export trained YOLO11 models to TFLite for Android deployment.
 
 Usage:
-    python scripts/export_tflite.py --model runs/pose/yolo11n_darts_pose/weights/best.pt
-    python scripts/export_tflite.py --all
-    python scripts/export_tflite.py --model best.pt --int8  # Quantized for smaller size
+    python scripts/export_tflite.py                  # export recommended models (calibration + pose)
+    python scripts/export_tflite.py --all            # export all trained models
+    python scripts/export_tflite.py --model runs/board_calibration/weights/best.pt
+    python scripts/export_tflite.py --all --int8     # INT8 quantized
 """
 
 import argparse
@@ -17,8 +18,23 @@ from ultralytics import YOLO
 MODELS_DIR = Path("models")
 ANDROID_ASSETS = Path("../darts_vision/app/src/main/assets/models")
 
+MODELS = {
+    "board_calibration": Path("runs/board_calibration/weights/best.pt"),
+    "darts_pose": Path("runs/darts_pose/weights/best.pt"),
+    "darts_detect": Path("runs/darts_detect/weights/best.pt"),
+}
 
-def export_model(model_path: str, int8: bool = False, copy_to_android: bool = False):
+RECOMMENDED = ["board_calibration", "darts_pose"]
+
+
+def detect_model_key(model_path: str) -> str:
+    for key, _ in MODELS.items():
+        if key in model_path:
+            return key
+    return "unknown"
+
+
+def export_model(model_path: str, int8: bool = False, copy_to_android: bool = False, model_key: str = None):
     model = YOLO(model_path)
 
     export_path = model.export(
@@ -32,7 +48,10 @@ def export_model(model_path: str, int8: bool = False, copy_to_android: bool = Fa
         print(f"[ERROR] Export file not found: {export_path}")
         return None
 
-    dest = MODELS_DIR / export_path.name
+    key = model_key or detect_model_key(model_path)
+    suffix = "_int8" if int8 else "_float32"
+    dest_name = f"{key}{suffix}.tflite"
+    dest = MODELS_DIR / dest_name
     MODELS_DIR.mkdir(exist_ok=True)
     shutil.copy2(str(export_path), str(dest))
 
@@ -52,17 +71,23 @@ def export_model(model_path: str, int8: bool = False, copy_to_android: bool = Fa
     return dest
 
 
-def export_all(int8: bool = False, copy_to_android: bool = False):
-    model_dirs = {
-        "pose": Path("runs/pose/yolo11n_darts_pose/weights/best.pt"),
-        "detect": Path("runs/detect/yolo11n_darts_detect/weights/best.pt"),
-        "calibration": Path("runs/calibration/yolo11n_board_calibration/weights/best.pt"),
-    }
-
-    for name, path in model_dirs.items():
+def export_recommended(int8: bool = False, copy_to_android: bool = False):
+    print("[INFO] Exporting recommended models (calibration + pose)")
+    for name in RECOMMENDED:
+        path = MODELS[name]
         if path.exists():
             print(f"\n[EXPORT] {name}: {path}")
-            export_model(str(path), int8=int8, copy_to_android=copy_to_android)
+            export_model(str(path), int8=int8, copy_to_android=copy_to_android, model_key=name)
+        else:
+            print(f"[SKIP] {name}: {path} not found")
+
+
+def export_all(int8: bool = False, copy_to_android: bool = False):
+    print("[INFO] Exporting all trained models")
+    for name, path in MODELS.items():
+        if path.exists():
+            print(f"\n[EXPORT] {name}: {path}")
+            export_model(str(path), int8=int8, copy_to_android=copy_to_android, model_key=name)
         else:
             print(f"[SKIP] {name}: {path} not found")
 
@@ -70,8 +95,8 @@ def export_all(int8: bool = False, copy_to_android: bool = False):
 def main():
     parser = argparse.ArgumentParser(description="Export YOLO11 models to TFLite")
     parser.add_argument("--model", type=str, help="Path to specific .pt model")
-    parser.add_argument("--all", action="store_true", help="Export all trained models")
-    parser.add_argument("--int8", action="store_true", help="Quantize to INT8 (smaller, faster)")
+    parser.add_argument("--all", action="store_true", help="Export all trained models (not just recommended)")
+    parser.add_argument("--int8", action="store_true", help="Quantize to INT8")
     parser.add_argument("--copy-android", action="store_true", help="Copy to Android assets")
     args = parser.parse_args()
 
@@ -80,15 +105,7 @@ def main():
     elif args.model:
         export_model(args.model, int8=args.int8, copy_to_android=args.copy_android)
     else:
-        print("Specify --model <path> or --all")
-        print("\nAvailable models after training:")
-        for name, path in [
-            ("Pose (dart tips + calibration)", "runs/pose/yolo11n_darts_pose/weights/best.pt"),
-            ("Detect (bounding boxes)", "runs/detect/yolo11n_darts_detect/weights/best.pt"),
-            ("Calibration (board keypoints)", "runs/calibration/yolo11n_board_calibration/weights/best.pt"),
-        ]:
-            exists = "✓" if Path(path).exists() else " "
-            print(f"  [{exists}] {name}: {path}")
+        export_recommended(int8=args.int8, copy_to_android=args.copy_android)
 
 
 if __name__ == "__main__":
