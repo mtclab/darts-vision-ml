@@ -233,10 +233,13 @@ def worker_fn(gpu_id, model_name, adapter_type, image_chunk, result_queue, max_t
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
     import torch
-    torch.cuda.set_device(torch.device("cuda:0"))
+    torch.cuda.set_device(0)
 
     print(f"[GPU {gpu_id}] Loading {model_name} (adapter: {adapter_type})...")
     t0 = time.time()
+
+    tokenizer = None
+    pvi = None
 
     if adapter_type == "qwen35":
         from transformers import AutoProcessor, AutoModelForImageTextToText
@@ -248,6 +251,7 @@ def worker_fn(gpu_id, model_name, adapter_type, image_chunk, result_queue, max_t
             torch_dtype=torch.bfloat16,
             device_map="auto",
         )
+        pvi = process_vision_info
 
     elif adapter_type == "qwen3_vl":
         from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
@@ -259,6 +263,7 @@ def worker_fn(gpu_id, model_name, adapter_type, image_chunk, result_queue, max_t
             torch_dtype=torch.bfloat16,
             device_map="auto",
         )
+        pvi = process_vision_info
 
     elif adapter_type == "granite_vision":
         from transformers import AutoProcessor, AutoModelForVision2Seq
@@ -307,7 +312,8 @@ def worker_fn(gpu_id, model_name, adapter_type, image_chunk, result_queue, max_t
 
         try:
             response, inf_time = _run_inference(
-                model, processor, image, adapter_type, max_tokens, tokenizer=locals().get("tokenizer"), process_vision_info=locals().get("process_vision_info"),
+                model, processor, image, adapter_type, max_tokens,
+                tokenizer=tokenizer, process_vision_info=pvi,
             )
         except Exception as e:
             print(f"[GPU {gpu_id}] Error on {img_path.name}: {e}")
@@ -453,7 +459,7 @@ def _run_inference(model, processor, image: Image.Image, adapter_type: str, max_
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "url": image},
+                    {"type": "image", "image": image},
                     {"type": "text", "text": PROMPT_STRUCTURED},
                 ],
             },
