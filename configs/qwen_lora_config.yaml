@@ -1,0 +1,41 @@
+# Qwen3.5-0.8B LoRA Fine-tuning Configuration
+# For dart board score recognition
+
+model:
+  name: "Qwen/Qwen3.5-0.8B"
+  max_length: 1024
+
+lora:
+  rank: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - "visual.blocks.*.attn.qkv"
+    - "visual.blocks.*.attn.proj"
+    - "visual.blocks.*.mlp.fc1"
+    - "visual.blocks.*.mlp.fc2"
+    - "visual.merger"
+    - "model.layers.*.self_attn.q_proj"
+    - "model.layers.*.self_attn.k_proj"
+    - "model.layers.*.self_attn.v_proj"
+    - "model.layers.*.self_attn.o_proj"
+    - "model.layers.*.mlp.gate_proj"
+    - "model.layers.*.mlp.up_proj"
+    - "model.layers.*.mlp.down_proj"
+
+training:
+  epochs: 3
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-4
+  lr_scheduler: "cosine"
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  fp16: true
+  gradient_checkpointing: true
+
+data:
+  train_file: "data/processed/vlm_train/train.jsonl"
+  val_file: "data/processed/vlm_train/val.jsonl"
+  image_size: 384  # Smaller for faster training, resize at inference

@@ -14,3 +14,26 @@ services:
               capabilities: [gpu]
     working_dir: /workspace
     command: bash
+
+  qwen:
+    build: .
+    shm_size: 16g
+    volumes:
+      - .:/workspace
+      - huggingface_cache:/workspace/.cache/hf
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    working_dir: /workspace
+    environment:
+      - PYTHONPATH=/workspace
+      - TRANSFORMERS_CACHE=/workspace/.cache/hf
+      - HF_HOME=/workspace/.cache/hf
+    command: bash
+
+volumes:
+  huggingface_cache:

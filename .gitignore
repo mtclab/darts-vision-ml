@@ -28,6 +28,15 @@ weights/
 *.tflite
 *.engine
 
+# VLM training data and results
+data/processed/vlm_train/
+results/
+.cache/
+
+# LoRA / HuggingFace cache
+.hf_cache/
+models--*/
+
 # IDE
 .idea/
 .vscode/
