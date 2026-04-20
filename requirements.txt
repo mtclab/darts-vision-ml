@@ -16,5 +16,5 @@ qwen-vl-utils[decord]==0.0.8
 peft>=0.14.0
 trl>=0.15.0
 bitsandbytes>=0.45.0
-datasets>=4.0.0
+datasets==4.8.3
 moondream>=1.1.0
