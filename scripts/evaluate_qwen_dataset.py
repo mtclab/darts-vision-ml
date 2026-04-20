@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
 Systematic evaluation of Qwen3.5-VL models against DeepDarts ground truth.
-
-Reads YOLO pose labels from the val split, computes ground truth scores,
-sends images to Qwen VL, parses responses, and reports accuracy metrics.
+Supports multi-GPU parallel inference for faster evaluation.
 
 Usage:
     python scripts/evaluate_qwen_dataset.py
     python scripts/evaluate_qwen_dataset.py --model Qwen/Qwen3.5-2B
     python scripts/evaluate_qwen_dataset.py --num-images 200
     python scripts/evaluate_qwen_dataset.py --all
+    python scripts/evaluate_qwen_dataset.py --gpus 0,1,2,3
+    python scripts/evaluate_qwen_dataset.py --all --gpus 0,1
     python scripts/evaluate_qwen_dataset.py --output results/qwen_0.8b_baseline.csv
 """
 
@@ -20,6 +20,7 @@ import math
 import random
 import re
 import time
+from multiprocessing import Process, Queue
 from pathlib import Path
 
 import numpy as np
@@ -65,15 +66,6 @@ D16"""
 
 
 def parse_dart_response(text: str) -> list:
-    patterns = [
-        r"[Tt](\d{1,2})",
-        r"[Dd](\d{1,2})",
-        r"[Ss](\d{1,2})",
-        r"\bBullseye\b",
-        r"\bBull\b",
-        r"\bMiss\b",
-        r"\b(\d{1,2})\b",
-    ]
     results = []
     lines = text.strip().split("\n")
     for line in lines:
@@ -128,27 +120,28 @@ def parse_dart_response(text: str) -> list:
     return results
 
 
-def load_model(model_name: str, device: str = "auto"):
+def load_model(model_name: str, gpu_id: int):
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+
     from transformers import AutoProcessor, AutoModelForImageTextToText
 
-    print(f"[LOAD] Loading {model_name}...")
+    print(f"[GPU {gpu_id}] Loading {model_name}...")
     t0 = time.time()
 
     processor = AutoProcessor.from_pretrained(model_name)
 
-    device_map = "auto" if device == "auto" else ({"": 0} if device == "cuda" else device)
-
     model = AutoModelForImageTextToText.from_pretrained(
         model_name,
         torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-        device_map=device_map,
+        device_map="auto",
     )
 
     load_time = time.time() - t0
     vram_mb = 0
     if torch.cuda.is_available():
         vram_mb = torch.cuda.memory_allocated() / 1024 / 1024
-    print(f"[LOAD] Done in {load_time:.1f}s, VRAM: {vram_mb:.0f} MB")
+    print(f"[GPU {gpu_id}] Loaded in {load_time:.1f}s, VRAM: {vram_mb:.0f} MB")
 
     return model, processor
 
@@ -217,7 +210,7 @@ def get_val_images():
         img_path = RAW_DIR / "cropped_images" / row.img_folder / row.img_name
         if img_path.exists():
             val_images.append({
-                "path": img_path,
+                "path": str(img_path),
                 "folder": row.img_folder,
                 "name": row.img_name,
                 "xy": row.xy,
@@ -228,6 +221,9 @@ def get_val_images():
 
 
 def compute_ground_truth(xy_list) -> list:
+    import cv2
+    from dart_board import DEEPDARTS_CAL_MM
+
     if len(xy_list) < 4:
         return []
 
@@ -242,11 +238,8 @@ def compute_ground_truth(xy_list) -> list:
     for i in range(4, min(len(xy_list), 7)):
         dart_keypoints.append(tuple(xy_list[i]))
 
-    import cv2
     img_w, img_h = 800, 800
-
     cal_names = ["D20", "D6", "D3", "D11"]
-    from dart_board import DEEPDARTS_CAL_MM
 
     src_pts = []
     dst_pts_mm = []
@@ -284,55 +277,28 @@ def compute_ground_truth(xy_list) -> list:
     return scores
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Evaluate Qwen VL on DeepDarts dataset")
-    parser.add_argument("--model", default="Qwen/Qwen3.5-0.8B", help="Model name")
-    parser.add_argument("--num-images", type=int, default=200, help="Number of images to evaluate")
-    parser.add_argument("--all", action="store_true", help="Evaluate ALL val images (1070)")
-    parser.add_argument("--output", default=None, help="Output CSV path (default: results/<model>_<timestamp>.csv)")
-    parser.add_argument("--device", default="auto", help="Device: auto, cuda, cpu")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for image selection")
-    parser.add_argument("--max-tokens", type=int, default=256, help="Max new tokens per inference")
-    args = parser.parse_args()
+def worker_fn(gpu_id, model_name, image_chunk, result_queue, max_tokens):
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
-    if args.all:
-        args.num_images = 0  # 0 means all
+    import torch
+    from PIL import Image
+    from transformers import AutoProcessor, AutoModelForImageTextToText
+    from qwen_vl_utils import process_vision_info
 
-    model_short = args.model.split("/")[-1]
-    results_dir = Path("results")
-    results_dir.mkdir(exist_ok=True)
+    torch.cuda.set_device(0)
 
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = results_dir / f"{model_short}_baseline_{timestamp}.csv"
+    print(f"[GPU {gpu_id}] Loading {model_name}...")
+    processor = AutoProcessor.from_pretrained(model_name)
+    model = AutoModelForImageTextToText.from_pretrained(
+        model_name,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+    )
+    print(f"[GPU {gpu_id}] Ready, processing {len(image_chunk)} images")
 
-    model, processor = load_model(args.model, args.device)
-
-    val_images = get_val_images()
-    if not val_images:
-        print("[ERROR] No val images found")
-        return
-
-    if args.num_images > 0 and args.num_images < len(val_images):
-        random.seed(args.seed)
-        val_images = random.sample(val_images, args.num_images)
-
-    print(f"\n[EVAL] Evaluating {len(val_images)} images with {args.model}")
-    print(f"[EVAL] Output: {output_path}")
-
-    results = []
-    total_gt_darts = 0
-    total_correct_segment = 0
-    total_correct_ring = 0
-    total_correct_full = 0
-    total_dart_count_correct = 0
-    total_images = 0
-    total_inference_time = 0
-
-    for entry in tqdm(val_images, desc="Evaluating"):
-        img_path = entry["path"]
+    for entry in image_chunk:
+        img_path = Path(entry["path"])
         xy_list = entry["xy"]
 
         gt_scores = compute_ground_truth(xy_list)
@@ -342,20 +308,55 @@ def main():
         try:
             image = Image.open(img_path).convert("RGB")
         except Exception as e:
-            print(f"[WARN] Cannot open {img_path}: {e}")
+            continue
+
+        try:
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "image": image},
+                        {"type": "text", "text": PROMPT_STRUCTURED},
+                    ],
+                }
+            ]
+            text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            image_inputs, video_inputs = process_vision_info(messages)
+            inputs = processor(
+                text=[text],
+                images=image_inputs,
+                videos=video_inputs,
+                padding=True,
+                return_tensors="pt",
+            ).to(model.device)
+
+            t0 = time.time()
+            with torch.no_grad():
+                generated_ids = model.generate(
+                    **inputs,
+                    max_new_tokens=max_tokens,
+                    temperature=0.3,
+                    top_p=0.8,
+                    top_k=20,
+                    do_sample=False,
+                )
+
+            generated_ids_trimmed = [
+                out_ids[len(in_ids):]
+                for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+            ]
+            response = processor.batch_decode(
+                generated_ids_trimmed,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=False,
+            )[0]
+            inf_time = time.time() - t0
+        except Exception as e:
             continue
 
         gt_labels = [s.label for s in gt_scores]
         gt_rings = [s.ring for s in gt_scores]
         gt_segments = [s.segment for s in gt_scores]
-
-        try:
-            response, inf_time = run_inference(model, processor, image, PROMPT_STRUCTURED, args.max_tokens)
-        except Exception as e:
-            print(f"[WARN] Inference failed for {img_path.name}: {e}")
-            continue
-
-        total_inference_time += inf_time
 
         parsed = parse_dart_response(response)
         pred_rings = [r for r, s in parsed if r != "outside"]
@@ -365,8 +366,6 @@ def main():
         n_pred = len(pred_rings)
 
         dart_count_correct = (n_pred == n_gt)
-        if n_pred == n_gt:
-            total_dart_count_correct += 1
 
         seg_matches = 0
         ring_matches = 0
@@ -385,33 +384,162 @@ def main():
             if gt_segments[i] == pred_segments[i] and pred_ring == gt_ring_mapped:
                 full_matches += 1
 
-        total_gt_darts += n_gt
-        total_correct_segment += seg_matches
-        total_correct_ring += ring_matches
-        total_correct_full += full_matches
-        total_images += 1
-
-        results.append({
+        result_queue.put({
             "image": img_path.name,
             "n_gt_darts": n_gt,
             "n_pred_darts": n_pred,
             "dart_count_correct": dart_count_correct,
+            "n_gt_darts_val": n_gt,
+            "seg_matches": seg_matches,
+            "ring_matches": ring_matches,
+            "full_matches": full_matches,
             "gt_labels": ", ".join(gt_labels),
             "pred_response": response.strip(),
             "pred_parsed": ", ".join(
                 [f"{'T' if r=='triple' else 'D' if r=='double' else 'S' if r=='single' else r}{s}" for r, s in parsed]
             ),
             "inference_time_s": round(inf_time, 3),
+            "gpu": gpu_id,
+        })
+
+    del model, processor
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    print(f"[GPU {gpu_id}] Done")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Evaluate Qwen VL on DeepDarts dataset (multi-GPU)")
+    parser.add_argument("--model", default="Qwen/Qwen3.5-0.8B", help="Model name")
+    parser.add_argument("--num-images", type=int, default=200, help="Number of images to evaluate")
+    parser.add_argument("--all", action="store_true", help="Evaluate ALL val images (1070)")
+    parser.add_argument("--output", default=None, help="Output CSV path")
+    parser.add_argument("--gpus", default=None, help="GPU IDs to use, comma-separated (e.g., 0,1,2,3). Default: auto-detect")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for image selection")
+    parser.add_argument("--max-tokens", type=int, default=256, help="Max new tokens per inference")
+    args = parser.parse_args()
+
+    if args.all:
+        args.num_images = 0
+
+    if args.gpus:
+        gpu_ids = [int(g.strip()) for g in args.gpus.split(",")]
+    else:
+        gpu_ids = list(range(torch.cuda.device_count())) if torch.cuda.is_available() else []
+        if not gpu_ids:
+            print("[ERROR] No GPUs found. Use --gpus to specify or run on CPU with --gpus cpu")
+            return
+
+    n_gpus = len(gpu_ids)
+    print(f"[SETUP] Using {n_gpus} GPU(s): {gpu_ids}")
+
+    model_short = args.model.split("/")[-1]
+    results_dir = Path("results")
+    results_dir.mkdir(exist_ok=True)
+
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_path = results_dir / f"{model_short}_baseline_{timestamp}.csv"
+
+    val_images = get_val_images()
+    if not val_images:
+        print("[ERROR] No val images found")
+        return
+
+    if args.num_images > 0 and args.num_images < len(val_images):
+        random.seed(args.seed)
+        val_images = random.sample(val_images, args.num_images)
+
+    print(f"\n[EVAL] Evaluating {len(val_images)} images with {args.model} on {n_gpus} GPU(s)")
+    print(f"[EVAL] Output: {output_path}")
+
+    chunks = [[] for _ in range(n_gpus)]
+    for i, entry in enumerate(val_images):
+        chunks[i % n_gpus].append(entry)
+
+    for i, chunk in enumerate(chunks):
+        print(f"  GPU {gpu_ids[i]}: {len(chunk)} images")
+
+    result_queue = Queue()
+    processes = []
+
+    t0_total = time.time()
+    for i, gpu_id in enumerate(gpu_ids):
+        p = Process(
+            target=worker_fn,
+            args=(gpu_id, args.model, chunks[i], result_queue, args.max_tokens),
+        )
+        p.start()
+        processes.append(p)
+
+    total_expected = sum(len(c) for c in chunks)
+    results = []
+    pbar = tqdm(total=total_expected, desc="Evaluating")
+
+    while any(p.is_alive() for p in processes):
+        while not result_queue.empty():
+            try:
+                result = result_queue.get_nowait()
+                results.append(result)
+                pbar.update(1)
+            except Exception:
+                break
+        time.sleep(0.1)
+
+    while not result_queue.empty():
+        try:
+            results.append(result_queue.get_nowait())
+        except Exception:
+            break
+
+    for p in processes:
+        p.join(timeout=30)
+
+    pbar.close()
+    total_time = time.time() - t0_total
+
+    total_gt_darts = 0
+    total_correct_segment = 0
+    total_correct_ring = 0
+    total_correct_full = 0
+    total_dart_count_correct = 0
+    total_images = 0
+    total_inference_time = 0
+
+    csv_results = []
+    for r in results:
+        n_gt = r["n_gt_darts_val"]
+        total_gt_darts += n_gt
+        total_correct_segment += r["seg_matches"]
+        total_correct_ring += r["ring_matches"]
+        total_correct_full += r["full_matches"]
+        if r["dart_count_correct"]:
+            total_dart_count_correct += 1
+        total_images += 1
+        total_inference_time += r["inference_time_s"]
+
+        csv_results.append({
+            "image": r["image"],
+            "n_gt_darts": r["n_gt_darts"],
+            "n_pred_darts": r["n_pred_darts"],
+            "dart_count_correct": r["dart_count_correct"],
+            "gt_labels": r["gt_labels"],
+            "pred_response": r["pred_response"],
+            "pred_parsed": r["pred_parsed"],
+            "inference_time_s": r["inference_time_s"],
+            "gpu": r["gpu"],
         })
 
     with open(output_path, "w", newline="") as f:
-        if results:
-            writer = csv.DictWriter(f, fieldnames=results[0].keys())
+        if csv_results:
+            writer = csv.DictWriter(f, fieldnames=csv_results[0].keys())
             writer.writeheader()
-            writer.writerows(results)
+            writer.writerows(csv_results)
 
     print(f"\n{'='*60}")
-    print(f"RESULTS: {args.model} on {total_images} images")
+    print(f"RESULTS: {args.model} on {total_images} images ({n_gpus} GPU(s))")
     print(f"{'='*60}")
     print(f"Total darts (ground truth): {total_gt_darts}")
     print(f"Dart count accuracy:         {total_dart_count_correct}/{total_images} = {total_dart_count_correct/max(total_images,1)*100:.1f}%")
@@ -419,12 +547,9 @@ def main():
     print(f"Ring accuracy:               {total_correct_ring}/{total_gt_darts} = {total_correct_ring/max(total_gt_darts,1)*100:.1f}%")
     print(f"Full score accuracy:         {total_correct_full}/{total_gt_darts} = {total_correct_full/max(total_gt_darts,1)*100:.1f}%")
     print(f"Avg inference time:          {total_inference_time/max(total_images,1):.2f}s")
+    print(f"Wall clock time:            {total_time:.1f}s")
+    print(f"Throughput:                 {total_images/max(total_time,1):.1f} images/s")
     print(f"Output saved to:             {output_path}")
-
-    import cv2
-    del model, processor
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
 
 
 if __name__ == "__main__":

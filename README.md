@@ -1,26 +1,32 @@
 # DartsVision ML Training
 
-Training and evaluation pipelines for darts detection and scoring models. Uses the [DeepDarts dataset](https://github.com/wmcnally/deep-darts) (16k images, McNally et al.) to train YOLO11 variants and Qwen3.5-VL models for the DartsVision Android app.
+Training and evaluation pipelines for darts detection and scoring models. Uses the [DeepDarts dataset](https://github.com/wmcnally/deep-darts) (16k images, McNally et al.) to train YOLO11 variants and evaluate Qwen3.5-VL models for the DartsVision Android app.
+
+## App Architecture (3 Modes)
+
+DartsVision is a **hand-held** darts scoring app — the phone is held in hand, not statically mounted. This rules out frame-differencing (which requires a stable reference frame).
+
+| Mode | How | Offline? | Speed | Accuracy |
+|------|-----|----------|-------|----------|
+| **Quick** | YOLO board calibration (4 kp) + YOLO darts pose (7 kp) | Yes | Real-time (~30ms) | Good (~2 deg) |
+| **Precise** | Camera frame → VLM → "T20, S5, D16" | Depends on VLM | 5-30s | Best |
+| **Manual** | User taps score on board UI | Yes | Instant | Perfect |
+
+Precise Mode VLM options (in priority order):
+1. **On-device**: Qwen3.5-0.8B via LiteRT-LM (~1.2GB) — if accuracy ≥80%
+2. **Cloud (free)**: Gemini 2.5 Flash API — 1,500 req/day free tier
+3. **Self-hosted**: Ollama on user's own GPU — full privacy, zero cost
 
 ## Models
 
 | Model | Purpose | Size | Status |
 |-------|---------|------|--------|
-| YOLO11n-pose (board_calibration) | Board detection + 4 calibration keypoints | ~11 MB TFLite | Trained (mAP50-95=0.995) |
+| YOLO11n-pose (board_calibration) | Board + 4 calibration keypoints | ~11 MB TFLite | Trained (mAP50-95=0.995) |
 | YOLO11n-pose (darts_pose) | Board + 7 keypoints (4 cal + 3 dart tips) | ~11 MB TFLite | Trained (mAP50-95=0.912) |
 | Qwen3.5-0.8B | VLM dart score recognition (baseline) | ~1.2 GB LiteRT | Under evaluation |
 | Qwen3.5-0.8B LoRA | VLM dart score recognition (fine-tuned) | ~1.2 GB + LoRA | Pending baseline results |
 | Qwen3.5-2B | VLM dart score recognition (comparison) | ~4 GB LiteRT | Pending evaluation |
-
-## Recommended Pipeline
-
-```
-1. Board Calibration  → 4 keypoints → homography → geometry
-2. Frame Differencing  → reference frame (empty board) → isolate darts
-3. Darts Pose          → single-frame dart detection fallback (no reference frame)
-```
-
-**2 models needed:** board_calibration (primary) + darts_pose (fallback).
+| ~~SmolVLM-500M~~ | ~~VLM via ONNX Runtime~~ | ~~485 MB~~ | Removed — wrong tool for measurement task |
 
 See [docs/approaches.md](docs/approaches.md) for full comparison.
 
@@ -70,13 +76,13 @@ docker compose run train python scripts/download_and_convert.py
 
 This creates symlinks + YOLO11 label files in `data/processed/` and generates `configs/dataset_*.yaml` with `/workspace/...` paths. Re-running cleans old data first.
 
-### 4. Train models
+### 4. Train YOLO models
 
 ```bash
-# 1. Primary: board calibration (replaces CV BoardDetector)
+# Board calibration (4 keypoints, primary detection)
 docker compose run train python scripts/train_board_calibration.py --epochs 100 --gpu 0
 
-# 2. Fallback: darts pose (single-frame dart detection when no reference frame)
+# Darts pose (7 keypoints, Quick Mode detection)
 docker compose run train python scripts/train_darts_pose.py --epochs 100 --gpu 0
 ```
 
@@ -113,6 +119,27 @@ docker compose run train python scripts/export_tflite.py --model runs/board_cali
 cp models/*.tflite ../darts_vision/app/src/main/assets/models/
 ```
 
+### 7. Evaluate Qwen3.5-VL for Precise Mode
+
+```bash
+# Build (same image serves both YOLO training and VLM work)
+docker compose build
+
+# Interactive test on your own images
+docker compose run qwen python scripts/test_qwen_vision.py \
+  --image /path/to/dartboard.jpg --prompt all
+
+# Full evaluation on all 1,070 val images (multi-GPU)
+docker compose run qwen python scripts/evaluate_qwen_dataset.py \
+  --model Qwen/Qwen3.5-0.8B --all --gpus 0,1,2,3
+
+# Compare with 2B
+docker compose run qwen python scripts/evaluate_qwen_dataset.py \
+  --model Qwen/Qwen3.5-2B --all --output results/qwen_2b_baseline.csv
+```
+
+See **Qwen3.5-VL section** below for full fine-tuning pipeline.
+
 ## Without Docker (Local Python)
 
 If you have CUDA + Python on the host:
@@ -127,12 +154,12 @@ python scripts/export_tflite.py
 
 **Note:** If you switch between Docker and local Python, re-run `download_and_convert.py` — it cleans old data and regenerates symlinks + configs with the correct paths for the current environment.
 
-## Models
+## YOLO Model Details
 
 | Model | What It Detects | Precision | TFLite (FP32 / INT8) | Use Case |
 |-------|---------------|-----------|----------------------|----------|
-| **Board calibration** | Board + 4 calibration keypoints | ~1 deg | `board_calibration_float32.tflite` / `_int8` | **Primary:** replaces CV BoardDetector |
-| **Darts pose** | Board + 7 keypoints (4 cal + 3 dart tips) | ~2 deg | `darts_pose_float32.tflite` / `_int8` | Fallback: single-frame dart detection |
+| **Board calibration** | Board + 4 calibration keypoints | ~1 deg | `board_calibration_float32.tflite` / `_int8` | Quick Mode: board geometry |
+| **Darts pose** | Board + 7 keypoints (4 cal + 3 dart tips) | ~2 deg | `darts_pose_float32.tflite` / `_int8` | Quick Mode: dart detection |
 | **Darts detect** | Board bbox + dart tip bbox | ~5 deg | `darts_detect_float32.tflite` / `_int8` | Alternative: bbox-only, less precise |
 
 ## Dataset
@@ -145,6 +172,8 @@ python scripts/export_tflite.py
 | Annotations | keypoints: 4 calibration corners + up to 3 dart tips per image |
 | Split | d1: 15,000 face-on + d2: 1,050 multi-angle |
 | Train/Val/Test | ~80/8/13% (DeepDarts official splits) |
+
+**Weakness for hand-held use:** 94% of images are face-on (d1 split). Only ~1,050 are multi-angle. Augmenting with phone photos at various angles will improve robustness.
 
 ### DeepDarts Annotation Format
 
@@ -166,14 +195,14 @@ Images are symlinked (not copied) to save disk space.
 
 ## Training Details
 
-### Board Calibration (Primary)
+### Board Calibration
 
 - **Architecture:** YOLO11 nano pose (4 keypoints only)
 - **Keypoints:** double-20, double-6, double-3, double-11 corners
-- **More rotation augmentation (+-30 deg)** since calibration needs angle invariance
+- **Rotation augmentation (+-30 deg)** for angle invariance
 - **Output:** `runs/board_calibration/train/weights/best.pt`
 
-### Darts Pose (Fallback)
+### Darts Pose
 
 - **Architecture:** YOLO11 nano pose (7 keypoints)
 - **Input:** 640x640
@@ -217,16 +246,17 @@ darts-vision-ml/
     dataset_calibration.yaml       #   (gitignored — environment-specific paths)
     dataset_pose.yaml
     dataset_detect.yaml
+    qwen_lora_config.yaml          # LoRA hyperparameters for Qwen3.5
   scripts/
     download_and_convert.py         # Dataset conversion + config generation
     train_utils.py                  # Shared: ensure_pretrained, parse_device, validate_dataset
-    train_board_calibration.py      # Board calibration (4 keypoints) — primary
-    train_darts_pose.py             # Darts pose (7 keypoints) — fallback
+    train_board_calibration.py      # Board calibration (4 keypoints) — Quick Mode
+    train_darts_pose.py             # Darts pose (7 keypoints) — Quick Mode
     train_darts_detect.py           # Darts detect (bbox) — alternative
     export_tflite.py                # Export .pt → .tflite
     dart_board.py                   # Shared: dart board geometry, keypoint-to-score conversion
     test_qwen_vision.py             # Interactive VLM testing (multiple prompts)
-    evaluate_qwen_dataset.py        # Systematic VLM evaluation against DeepDarts
+    evaluate_qwen_dataset.py        # Systematic VLM evaluation against DeepDarts (multi-GPU)
     prepare_qwen_training.py        # Convert YOLO labels → VLM instruction format
     train_qwen_lora.py              # LoRA fine-tuning for Qwen3.5-VL
   data/
@@ -237,12 +267,15 @@ darts-vision-ml/
       board_calibration/
       yolo11_pose/
       yolo11_detect/
+      vlm_train/                    # Qwen3.5 training data (JSONL, generated)
   weights/                          # Pretrained YOLO weights (auto-downloaded, gitignored)
   runs/                             # Training runs (generated)
     board_calibration/train/weights/
     darts_pose/train/weights/
     darts_detect/train/weights/
+    qwen_lora/                      # Qwen3.5 LoRA training output
   models/                           # Exported TFLite (generated)
+  results/                          # VLM evaluation results (CSV)
 ```
 
 ## Troubleshooting
@@ -269,11 +302,18 @@ docker compose run train python scripts/train_darts_pose.py --resume runs/darts_
 
 ---
 
-## Qwen3.5-VL: VLM Dart Score Recognition
+## Qwen3.5-VL: VLM Dart Score Recognition (Precise Mode)
 
 ### Overview
 
-Evaluate and fine-tune Qwen3.5-VL models (0.8B, 2B) for reading dart scores from images. The VLM approach complements YOLO detection — YOLO finds the board, VLM reads the scores.
+Evaluate and fine-tune Qwen3.5-VL models (0.8B, 2B) for reading dart scores from camera frames. This is the **Precise Mode** — send full frame to VLM, get back scores like "T20, S5, D16". Complements YOLO Quick Mode.
+
+**Why Qwen3.5-VL?**
+- Qwen3.5 (Feb 2026) uses hybrid GatedDeltaNet+attention — efficient for on-device
+- 0.8B has existing LiteRT-LM conversion (~1.2GB) — could run on-device
+- Benchmarks: OCRBench 79.1%, RefCOCO 77.8%, RealWorldQA 61.6%
+- Apache 2.0 license
+- Requires `transformers>=4.57.0`, model class `Qwen3_5ForConditionalGeneration`
 
 ### Docker Setup
 
@@ -295,7 +335,7 @@ docker compose run qwen python scripts/test_qwen_vision.py \
   --image /path/to/dartboard.jpg \
   --model Qwen/Qwen3.5-0.8B
 
-# Test all prompt strategies
+# Test all 4 prompt strategies
 docker compose run qwen python scripts/test_qwen_vision.py \
   --image /path/to/dartboard.jpg \
   --prompt all
@@ -314,15 +354,15 @@ docker compose run qwen python scripts/evaluate_qwen_dataset.py \
   --model Qwen/Qwen3.5-0.8B \
   --num-images 200
 
-# Full evaluation on all 1,070 val images
+# Full evaluation on all 1,070 val images (multi-GPU)
 docker compose run qwen python scripts/evaluate_qwen_dataset.py \
   --model Qwen/Qwen3.5-0.8B \
-  --all
+  --all --gpus 0,1,2,3
 
 # Compare with 2B
 docker compose run qwen python scripts/evaluate_qwen_dataset.py \
   --model Qwen/Qwen3.5-2B \
-  --all \
+  --all --gpus 0,1,2,3 \
   --output results/qwen_2b_baseline.csv
 ```
 
@@ -340,7 +380,7 @@ docker compose run qwen python scripts/prepare_qwen_training.py
 ### Step 4: LoRA Fine-Tuning
 
 ```bash
-# Fine-tune with default config
+# Fine-tune with default config (configs/qwen_lora_config.yaml)
 docker compose run qwen python scripts/train_qwen_lora.py
 
 # Override parameters
@@ -362,20 +402,22 @@ docker compose run qwen python scripts/evaluate_qwen_dataset.py \
   --output results/qwen_0.8b_lora.csv
 ```
 
-### Decision Framework
+### Next Steps After Evaluation
 
 | Baseline Accuracy | Action |
 |-------------------|--------|
-| ≥ 80% | Skip fine-tuning, export to LiteRT for Android |
-| 50-80% | LoRA fine-tune, likely reaches ≥ 85% |
-| < 50% | Try Qwen3.5-2B or use cloud VLM (Gemini) instead |
+| ≥ 80% | Skip fine-tuning, export Qwen3.5-0.8B to LiteRT for on-device Precise Mode |
+| 50-80% | LoRA fine-tune on DeepDarts, likely reaches ≥ 85% |
+| < 50% | Try Qwen3.5-2B; if still bad, use cloud VLM (Gemini) as Precise Mode |
+
+If Qwen3.5 on-device doesn't work: **Gemini 2.5 Flash** is the cloud Precise Mode. Free tier = 1,500 req/day (enough for darts: ~3 req/turn). Backend proxy supports user's own API key + self-hosted Ollama.
 
 ### Qwen Scripts
 
 | Script | Purpose |
 |--------|---------|
 | `scripts/dart_board.py` | Shared dart board geometry and keypoint-to-score conversion |
-| `scripts/test_qwen_vision.py` | Interactive test with multiple prompt strategies |
-| `scripts/evaluate_qwen_dataset.py` | Systematic evaluation against DeepDarts ground truth |
+| `scripts/test_qwen_vision.py` | Interactive test with 4 prompt strategies + latency measurement |
+| `scripts/evaluate_qwen_dataset.py` | Systematic eval against DeepDarts ground truth (multi-GPU) |
 | `scripts/prepare_qwen_training.py` | Convert YOLO labels to VLM training format (JSONL) |
 | `scripts/train_qwen_lora.py` | LoRA fine-tuning with PEFT + TRL |
