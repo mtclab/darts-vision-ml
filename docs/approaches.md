@@ -89,8 +89,8 @@ Detects the dartboard with 7 keypoints: 4 calibration corners + up to 3 dart tip
 
 ## Approach 3: VLM Score Reading (Under Evaluation)
 
-**Models:** Qwen3.5-0.8B / Qwen3.5-2B (on-device) or Gemini 2.5 Flash (cloud)
-**Status:** Baseline evaluation in progress
+**Models:** Qwen3.5-0.8B, Qwen3.5-2B, Qwen3-VL-2B, Granite-Vision-3.2-2B, Moondream2 (on-device) or Gemini 2.5 Flash (cloud)
+**Status:** Baseline benchmark in progress
 
 ### What it does
 Sends full camera frame to a Vision Language Model. VLM reads the board directly and outputs scores like "T20, S5, D16". No keypoint detection or geometry computation needed.
@@ -107,15 +107,17 @@ Sends full camera frame to a Vision Language Model. VLM reads the board directly
 - **Cloud requires network** — Gemini free tier works but needs internet
 - **Large on-device model** — Qwen3.5-0.8B ~1.2GB via LiteRT, 2B ~4GB
 
-### On-Device (Qwen3.5-VL)
+### On-Device VLM Candidates
 
-| Model | Size | Notes |
-|-------|------|-------|
-| Qwen3.5-0.8B | ~1.2 GB LiteRT | Existing LiteRT conversion available. OCRBench 79.1%, RefCOCO 77.8% |
-| Qwen3.5-2B | ~4 GB LiteRT | Better benchmarks (MMStar 68.1% vs 55.9%) but larger |
-| Qwen3.5 LoRA | ~1.2 GB + LoRA adapter | If baseline is 50-80%, LoRA fine-tune on DeepDarts |
+| Model | Size | Adapter | Notes |
+|-------|------|---------|-------|
+| Qwen3.5-0.8B | ~1.2 GB LiteRT | `qwen35` | Hybrid GatedDeltaNet+attention, existing LiteRT conversion |
+| Qwen3.5-2B | ~4 GB | `qwen35` | Better benchmarks, larger |
+| Qwen3-VL-2B-Instruct | ~4 GB | `qwen3_vl` | Full attention (not hybrid), DeepStack features |
+| Granite-Vision-3.2-2B | ~4 GB | `granite_vision` | IBM, document-focused, vision2seq |
+| Moondream2 | ~3 GB | `moondream` | Small, purpose-built VLM, encode_image + query API |
 
-Model class: `Qwen3_5ForConditionalGeneration` (not `Qwen2_5_VL`). Requires `transformers>=4.57.0`.
+Model classes differ per family — adapters in `evaluate_vlm_benchmark.py` handle automatically.
 
 ### Cloud (Gemini 2.5 Flash)
 

@@ -1,6 +1,6 @@
 # DartsVision ML Training
 
-Training and evaluation pipelines for darts detection and scoring models. Uses the [DeepDarts dataset](https://github.com/wmcnally/deep-darts) (16k images, McNally et al.) to train YOLO11 variants and evaluate Qwen3.5-VL models for the DartsVision Android app.
+Training and evaluation pipelines for darts detection and scoring models. Uses the [DeepDarts dataset](https://github.com/wmcnally/deep-darts) (16k images, McNally et al.) to train YOLO11 variants and benchmark VLM models for the DartsVision Android app.
 
 ## App Architecture (3 Modes)
 
@@ -23,9 +23,11 @@ Precise Mode VLM options (in priority order):
 |-------|---------|------|--------|
 | YOLO11n-pose (board_calibration) | Board + 4 calibration keypoints | ~11 MB TFLite | Trained (mAP50-95=0.995) |
 | YOLO11n-pose (darts_pose) | Board + 7 keypoints (4 cal + 3 dart tips) | ~11 MB TFLite | Trained (mAP50-95=0.912) |
-| Qwen3.5-0.8B | VLM dart score recognition (baseline) | ~1.2 GB LiteRT | Under evaluation |
-| Qwen3.5-0.8B LoRA | VLM dart score recognition (fine-tuned) | ~1.2 GB + LoRA | Pending baseline results |
-| Qwen3.5-2B | VLM dart score recognition (comparison) | ~4 GB LiteRT | Pending evaluation |
+| Qwen3.5-0.8B | VLM dart score recognition | ~1.2 GB LiteRT | Under evaluation |
+| Qwen3.5-2B | VLM dart score recognition | ~4 GB LiteRT | Under evaluation |
+| Qwen3-VL-2B-Instruct | VLM dart score recognition | ~4 GB | Under evaluation |
+| Granite-Vision-3.2-2B | VLM dart score recognition | ~4 GB | Under evaluation |
+| Moondream2 | VLM dart score recognition | ~3 GB | Under evaluation |
 | ~~SmolVLM-500M~~ | ~~VLM via ONNX Runtime~~ | ~~485 MB~~ | Removed — wrong tool for measurement task |
 
 See [docs/approaches.md](docs/approaches.md) for full comparison.
@@ -119,7 +121,7 @@ docker compose run train python scripts/export_tflite.py --model runs/board_cali
 cp models/*.tflite ../darts_vision/app/src/main/assets/models/
 ```
 
-### 7. Evaluate Qwen3.5-VL for Precise Mode
+### 7. Benchmark VLM models for Precise Mode
 
 ```bash
 # Build (same image serves both YOLO training and VLM work)
@@ -129,16 +131,19 @@ docker compose build
 docker compose run qwen python scripts/test_qwen_vision.py \
   --image /path/to/dartboard.jpg --prompt all
 
-# Full evaluation on all 1,070 val images (multi-GPU)
-docker compose run qwen python scripts/evaluate_qwen_dataset.py \
-  --model Qwen/Qwen3.5-0.8B --all --gpus 0,1,2,3
+# Single model eval on all 1,070 val images (multi-GPU)
+docker compose run qwen python scripts/evaluate_vlm_benchmark.py \
+  --model Qwen/Qwen3.5-0.8B --all --gpus 0,1,2
 
-# Compare with 2B
-docker compose run qwen python scripts/evaluate_qwen_dataset.py \
-  --model Qwen/Qwen3.5-2B --all --output results/qwen_2b_baseline.csv
+# Benchmark ALL candidates in one run (sequential, multi-GPU)
+docker compose run qwen python scripts/evaluate_vlm_benchmark.py \
+  --models Qwen/Qwen3.5-0.8B,Qwen/Qwen3.5-2B,Qwen/Qwen3-VL-2B-Instruct,ibm-granite/granite-vision-3.2-2b,vikhyatk/moondream2 \
+  --all --gpus 0,1,2
 ```
 
-See **Qwen3.5-VL section** below for full fine-tuning pipeline.
+Models run sequentially (one at a time, all GPUs per model). Outputs comparison table + per-model CSV.
+
+See **VLM Benchmark section** below for fine-tuning pipeline.
 
 ## Without Docker (Local Python)
 
@@ -256,7 +261,8 @@ darts-vision-ml/
     export_tflite.py                # Export .pt → .tflite
     dart_board.py                   # Shared: dart board geometry, keypoint-to-score conversion
     test_qwen_vision.py             # Interactive VLM testing (multiple prompts)
-    evaluate_qwen_dataset.py        # Systematic VLM evaluation against DeepDarts (multi-GPU)
+    evaluate_vlm_benchmark.py    # Multi-model benchmark (5 adapters, multi-GPU)
+    evaluate_qwen_dataset.py       # Legacy wrapper → evaluate_vlm_benchmark.py
     prepare_qwen_training.py        # Convert YOLO labels → VLM instruction format
     train_qwen_lora.py              # LoRA fine-tuning for Qwen3.5-VL
   data/
@@ -302,23 +308,27 @@ docker compose run train python scripts/train_darts_pose.py --resume runs/darts_
 
 ---
 
-## Qwen3.5-VL: VLM Dart Score Recognition (Precise Mode)
+## VLM Benchmark: Dart Score Recognition (Precise Mode)
 
 ### Overview
 
-Evaluate and fine-tune Qwen3.5-VL models (0.8B, 2B) for reading dart scores from camera frames. This is the **Precise Mode** — send full frame to VLM, get back scores like "T20, S5, D16". Complements YOLO Quick Mode.
+Benchmark multiple VLM models for reading dart scores from camera frames. This is the **Precise Mode** — send full frame to VLM, get back scores like "T20, S5, D16". Complements YOLO Quick Mode.
 
-**Why Qwen3.5-VL?**
-- Qwen3.5 (Feb 2026) uses hybrid GatedDeltaNet+attention — efficient for on-device
-- 0.8B has existing LiteRT-LM conversion (~1.2GB) — could run on-device
-- Benchmarks: OCRBench 79.1%, RefCOCO 77.8%, RealWorldQA 61.6%
-- Apache 2.0 license
-- Requires `transformers>=4.57.0`, model class `Qwen3_5ForConditionalGeneration`
+### VLM Candidates
+
+| Model | HF ID | Params | On-device? | Adapter |
+|-------|-------|--------|-----------|---------|
+| Qwen3.5-0.8B | `Qwen/Qwen3.5-0.8B` | 0.9B | LiteRT ~1.2GB | `qwen35` |
+| Qwen3.5-2B | `Qwen/Qwen3.5-2B` | 2B | ~4GB | `qwen35` |
+| Qwen3-VL-2B | `Qwen/Qwen3-VL-2B-Instruct` | 2B | ~4GB | `qwen3_vl` |
+| Granite-Vision-3.2-2B | `ibm-granite/granite-vision-3.2-2b` | 2B | ~4GB | `granite_vision` |
+| Moondream2 | `vikhyatk/moondream2` | 1.6B | ~3GB | `moondream` |
+
+Each model uses a different model class and inference API — adapters in `evaluate_vlm_benchmark.py` handle the differences automatically.
 
 ### Docker Setup
 
 ```bash
-# Build (same image serves both YOLO training and VLM work)
 docker compose build
 
 # VLM evaluation and fine-tuning
@@ -330,40 +340,40 @@ The `qwen` service has GPU access, HuggingFace cache volume, and all VLM depende
 ### Step 1: Baseline Test on Custom Images
 
 ```bash
-# Test on your own dart board screenshots
+# Test on your own dart board screenshots (any supported model)
 docker compose run qwen python scripts/test_qwen_vision.py \
-  --image /path/to/dartboard.jpg \
-  --model Qwen/Qwen3.5-0.8B
+  --image /path/to/dartboard.jpg --prompt all
 
-# Test all 4 prompt strategies
 docker compose run qwen python scripts/test_qwen_vision.py \
-  --image /path/to/dartboard.jpg \
-  --prompt all
-
-# Compare 0.8B vs 2B
-docker compose run qwen python scripts/test_qwen_vision.py \
-  --image /path/to/dartboard.jpg \
-  --model Qwen/Qwen3.5-2B
+  --image /path/to/dartboard.jpg --model Qwen/Qwen3-VL-2B-Instruct
 ```
 
-### Step 2: Systematic Evaluation on DeepDarts
+### Step 2: Benchmark on DeepDarts
 
 ```bash
-# Evaluate on 200 val images (quick, ~30 min)
-docker compose run qwen python scripts/evaluate_qwen_dataset.py \
-  --model Qwen/Qwen3.5-0.8B \
-  --num-images 200
+# Single model, quick test (200 images, ~30 min)
+docker compose run qwen python scripts/evaluate_vlm_benchmark.py \
+  --model Qwen/Qwen3.5-0.8B --num-images 200
 
-# Full evaluation on all 1,070 val images (multi-GPU)
-docker compose run qwen python scripts/evaluate_qwen_dataset.py \
-  --model Qwen/Qwen3.5-0.8B \
-  --all --gpus 0,1,2,3
+# Single model, full eval (1,070 images, multi-GPU)
+docker compose run qwen python scripts/evaluate_vlm_benchmark.py \
+  --model Qwen/Qwen3.5-0.8B --all --gpus 0,1,2
 
-# Compare with 2B
-docker compose run qwen python scripts/evaluate_qwen_dataset.py \
-  --model Qwen/Qwen3.5-2B \
-  --all --gpus 0,1,2,3 \
-  --output results/qwen_2b_baseline.csv
+# Benchmark ALL candidates in one run (sequential, multi-GPU)
+docker compose run qwen python scripts/evaluate_vlm_benchmark.py \
+  --models Qwen/Qwen3.5-0.8B,Qwen/Qwen3.5-2B,Qwen/Qwen3-VL-2B-Instruct,ibm-granite/granite-vision-3.2-2b,vikhyatk/moondream2 \
+  --all --gpus 0,1,2
+```
+
+Models run one at a time (all GPUs per model). Final comparison table:
+
+```
+Model                          DartCnt  Segment     Ring     Full   AvgInf    Img/s
+Qwen3.5-0.8B                   45.2%    38.1%    29.5%    22.3%    1.2s    2.1/s
+Qwen3.5-2B                     52.1%    44.3%    35.2%    28.1%    2.1s    1.5/s
+Qwen3-VL-2B-Instruct           ...      ...      ...      ...      ...     ...
+granite-vision-3.2-2b          ...      ...      ...      ...      ...     ...
+moondream2                     ...      ...      ...      ...      ...     ...
 ```
 
 Outputs: `results/<model>_baseline_<timestamp>.csv` with per-image accuracy.
@@ -396,28 +406,28 @@ docker compose run qwen python scripts/train_qwen_lora.py \
 
 ```bash
 # Re-run evaluation with the fine-tuned model
-docker compose run qwen python scripts/evaluate_qwen_dataset.py \
+docker compose run qwen python scripts/evaluate_vlm_benchmark.py \
   --model runs/qwen_lora/merged_model/qwen3.5-0.8b-darts-lora \
-  --all \
-  --output results/qwen_0.8b_lora.csv
+  --all --output-dir results
 ```
 
-### Next Steps After Evaluation
+### Decision Framework After Benchmark
 
-| Baseline Accuracy | Action |
-|-------------------|--------|
-| ≥ 80% | Skip fine-tuning, export Qwen3.5-0.8B to LiteRT for on-device Precise Mode |
-| 50-80% | LoRA fine-tune on DeepDarts, likely reaches ≥ 85% |
-| < 50% | Try Qwen3.5-2B; if still bad, use cloud VLM (Gemini) as Precise Mode |
+| Best Model Accuracy | Action |
+|---------------------|--------|
+| ≥ 80% | Skip fine-tuning, export to LiteRT for on-device Precise Mode |
+| 50-80% | LoRA fine-tune the best model on DeepDarts |
+| < 50% | Use cloud VLM (Gemini 2.5 Flash) as Precise Mode |
 
-If Qwen3.5 on-device doesn't work: **Gemini 2.5 Flash** is the cloud Precise Mode. Free tier = 1,500 req/day (enough for darts: ~3 req/turn). Backend proxy supports user's own API key + self-hosted Ollama.
+Cloud fallback: **Gemini 2.5 Flash** free tier = 1,500 req/day. Backend proxy supports user's own API key + self-hosted Ollama.
 
-### Qwen Scripts
+### VLM Scripts
 
 | Script | Purpose |
 |--------|---------|
 | `scripts/dart_board.py` | Shared dart board geometry and keypoint-to-score conversion |
 | `scripts/test_qwen_vision.py` | Interactive test with 4 prompt strategies + latency measurement |
-| `scripts/evaluate_qwen_dataset.py` | Systematic eval against DeepDarts ground truth (multi-GPU) |
+| `scripts/evaluate_vlm_benchmark.py` | Multi-model benchmark against DeepDarts (multi-GPU, 5 adapters) |
+| `scripts/evaluate_qwen_dataset.py` | Legacy wrapper → delegates to evaluate_vlm_benchmark.py |
 | `scripts/prepare_qwen_training.py` | Convert YOLO labels to VLM training format (JSONL) |
 | `scripts/train_qwen_lora.py` | LoRA fine-tuning with PEFT + TRL |
