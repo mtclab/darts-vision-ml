@@ -1,17 +1,12 @@
-torch==2.11.0
-torchvision==0.26.0
-ultralytics==8.4.40
-opencv-python==4.13.0.92
-numpy==2.4.3
-Pillow==12.1.1
-PyYAML==6.0.3
-matplotlib==3.10.8
-tqdm==4.67.3
-pandas==3.0.2
-scikit-learn==1.8.0
+# --- Already in ultralytics/ultralytics:latest base image (torch 2.11, CUDA 12.8) ---
+# torch, torchvision, ultralytics, opencv-python-headless, numpy, Pillow, PyYAML,
+# matplotlib, tqdm, pandas, scikit-learn, albumentations
+# Do NOT reinstall — causes resolver to hang or break CUDA torch.
+
+# --- VLM / NLP extras (not in base) ---
 transformers==5.5.4
-qwen-vl-utils[decord]==0.0.8
+qwen-vl-utils==0.0.14
 peft==0.19.1
 multiprocess==0.70.19
-datasets==4.8.3
-moondream==1.1.0
+datasets==4.8.4
+moondream==0.2.1
