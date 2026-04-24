@@ -17,10 +17,12 @@ darts-vision-ml/
 │   │   └── yolo_detect_deepdarts/  # Converted YOLO format (.txt labels)
 │   └── darts.yaml                    # YOLO dataset config
 ├── src/
-│   ├── convert_dataset.py  # labels.pkl → YOLO .txt
-│   ├── train.py          # DDP training script
-│   ├── export_tflite.py  # INT8 quantization export
-│   └── evaluate.py       # End-to-end scoring accuracy (PCS / MASE)
+    │   ├── convert_dataset.py    # labels.pkl → YOLO detection .txt
+    │   ├── convert_pose.py       # labels.pkl → YOLO pose .txt (recommended)
+    │   ├── train.py              # Detection training
+    │   ├── train_pose.py         # Pose estimation training
+    │   ├── export_tflite.py      # INT8 quantization export
+    │   └── evaluate.py           # End-to-end scoring accuracy (PCS / MASE)
 ├── models/               # Final .tflite outputs
 ├── runs/                 # Training checkpoints
 └── requirements.txt
@@ -170,16 +172,40 @@ torchrun --nproc_per_node=3 src/train.py \
 - `scale=0.1`: Camera distance is fixed in your setup
 - `batch=10`: Memory tradeoff for `imgsz=1280` on 20GB GPUs
 
-### 5.3 Pose Estimation (Recommended for v2)
+### 5.3 Pose Estimation (Maximum Accuracy)
 
-For maximum accuracy, train **YOLOv8-pose** to directly regress 7 keypoints instead of bbox centers:
+Train **YOLOv8-pose** to directly regress 7 keypoints, eliminating the bbox-center approximation entirely.
 
-```python
-from ultralytics import YOLO
-model = YOLO('yolov8n-pose.pt')
+Convert to pose format:
+
+```bash
+python src/convert_pose.py \
+    --labels data/raw/deep-darts/dataset/labels.pkl \
+    --output data/processed/yolo_pose_darts
 ```
 
-This eliminates the "bbox center → keypoint" approximation entirely. Requires a new converter script (not yet implemented — see `TODO` in `src/convert_dataset.py`).
+Train:
+
+```bash
+torchrun --nproc_per_node=3 src/train_pose.py \
+    --data data/processed/yolo_pose_darts/pose.yaml \
+    --model yolov8n-pose.pt \
+    --epochs 100 \
+    --imgsz 1280 \
+    --batch 10 \
+    --project runs/darts_pose \
+    --name yolov8n_pose_1280
+```
+
+Export to TFLite:
+
+```bash
+python src/export_tflite.py \
+    --weights runs/darts_pose/yolov8n_pose_1280/weights/best.pt \
+    --data data/processed/yolo_pose_darts/pose.yaml \
+    --imgsz 1280 \
+    --output models/
+```
 
 | Approach | mAP50 | mAP50-95 | PCS | Best For |
 |----------|-------|----------|-----|----------|
