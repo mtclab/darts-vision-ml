@@ -56,13 +56,10 @@ def save_yolo_labels(img_name: str, keypoints: np.ndarray, output_dir: Path, bbo
         f.writelines(lines)
 
 
-def split_and_write(data, output_root: Path, test_size=0.15, val_size=0.15, random_state=42):
+def split_and_write(img_paths, gts, output_root: Path, test_size=0.15, val_size=0.15, random_state=42):
     """Split dataset into train/val/test and write YOLO labels."""
     output_root.mkdir(parents=True, exist_ok=True)
-    
-    img_paths = data["img_paths"]
-    gts = data["gt"]  # shape (N, 7, 3)
-    
+
     # First split: separate test
     train_val_idx, test_idx = train_test_split(
         range(len(img_paths)), test_size=test_size, random_state=random_state
@@ -71,29 +68,29 @@ def split_and_write(data, output_root: Path, test_size=0.15, val_size=0.15, rand
     train_idx, val_idx = train_test_split(
         train_val_idx, test_size=val_size/(1-test_size), random_state=random_state
     )
-    
+
     splits = {
         "train": train_idx,
         "val": val_idx,
         "test": test_idx,
     }
-    
+
     for split_name, indices in splits.items():
         split_dir = output_root / split_name
         split_dir.mkdir(parents=True, exist_ok=True)
-        
+
         for idx in indices:
             img_path = img_paths[idx]
             img_name = Path(img_path).name
-            
+
             # Copy image
             src_img = Path(img_path)
             if src_img.exists():
                 shutil.copy2(src_img, split_dir / img_name)
-            
+
             # Write labels
             save_yolo_labels(img_name, gts[idx], split_dir, BBOX_SIZE)
-    
+
     print(f"Splits written to {output_root}")
     for name, idxs in splits.items():
         print(f"  {name}: {len(idxs)} images")
@@ -103,16 +100,31 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--labels", required=True, help="Path to labels.pkl")
     parser.add_argument("--output", default="data/yolo", help="Output directory")
+    parser.add_argument("--images", default=None, help="Base image directory (if needed to resolve relative paths)")
     parser.add_argument("--bbox-size", type=float, default=BBOX_SIZE)
     parser.add_argument("--test-size", type=float, default=0.15)
     parser.add_argument("--val-size", type=float, default=0.15)
     args = parser.parse_args()
-    
+
     data = load_labels(args.labels)
-    print(f"Loaded {len(data['img_paths'])} images")
-    
+
+    if hasattr(data, 'columns'):
+        # DataFrame with columns img_folder, img_name, bbox, xy
+        print(f"Loaded {len(data)} images")
+        img_paths = [os.path.join(str(f), str(n)) for f, n in zip(data['img_folder'], data['img_name'])]
+        gts = data['xy'].tolist()
+    else:
+        print(f"Loaded {len(data['img_paths'])} images")
+        img_paths = data['img_paths']
+        gts = data['gt']
+
+    if args.images:
+        base = Path(args.images)
+        img_paths = [str(base / p) for p in img_paths]
+
     split_and_write(
-        data,
+        img_paths,
+        gts,
         Path(args.output),
         test_size=args.test_size,
         val_size=args.val_size,
