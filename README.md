@@ -8,9 +8,14 @@ Trains a YOLOv8n object detector to locate dart tips and board calibration corne
 ```
 darts-vision-ml/
 ├── data/
-│   ├── raw/              # Place DeepDarts images + labels.pkl here
-│   ├── yolo/             # Converted YOLO format (.txt labels)
-│   └── darts.yaml        # YOLO dataset config
+│   ├── raw/
+│   │   └── deep-darts/
+│   │       └── dataset/
+│   │           ├── labels.pkl        # DeepDarts annotations (DataFrame)
+│   │           └── cropped_images/ # 16k cropped board images
+│   ├── processed/
+│   │   └── yolo_detect_deepdarts/  # Converted YOLO format (.txt labels)
+│   └── darts.yaml                    # YOLO dataset config
 ├── src/
 │   ├── convert_dataset.py  # labels.pkl → YOLO .txt
 │   ├── train.py          # DDP training script
@@ -40,20 +45,20 @@ pip install -r requirements.txt
 
 ## 1. Prepare Dataset
 
-Place DeepDarts data into `data/raw/`:
+Place DeepDarts data into `data/raw/deep-darts/dataset/`:
 
 ```
-data/raw/
-  ├── images/           # 16k cropped board images
-  └── labels.pkl        # DeepDarts annotations
+data/raw/deep-darts/dataset/
+├── labels.pkl          # DataFrame with columns img_folder, img_name, bbox, xy
+└── cropped_images/     # 16k cropped board images organized by folder
 ```
 
 Convert to YOLO format:
 
 ```bash
 python src/convert_dataset.py \
-    --labels data/raw/labels.pkl \
-    --output data/yolo
+    --labels data/raw/deep-darts/dataset/labels.pkl \
+    --output data/processed/yolo_detect_deepdarts
 ```
 
 This writes `train/`, `val/`, `test/` folders with images + `.txt` labels.
@@ -125,9 +130,16 @@ Output metrics:
 
 ## Data Format Notes
 
-DeepDarts `labels.pkl` stores ground truth as:
-- `img_paths`: list of image file paths
-- `gt`: ndarray `(N, 7, 3)` → 4 calibration corners + up to 3 darts, visibility flag in 3rd channel
+DeepDarts `labels.pkl` is a DataFrame with columns:
+- `img_folder`: folder name under `cropped_images/`
+- `img_name`: image filename
+- `bbox`: bounding box `[x, y, w, h]`
+- `xy`: list of `[x, y]` points (4 calibration corners + up to 3 darts, normalized 0-1)
+
+Script converts `xy` list to `(7, 3)` array:
+- indices 0-3: calibration corners
+- indices 4-6: darts
+- 3rd column: visibility flag (0 or 1)
 
 YOLO format per image `.txt`:
 ```
