@@ -7,9 +7,9 @@ Classes: 0=dart, 1=cal_corner
 
 Usage:
     python src/convert_dataset.py \
-        --labels data/raw/labels.pkl \
-        --images data/raw/images \
-        --output data/yolo \
+        --labels data/raw/deep-darts/dataset/labels.pkl \
+        --images data/raw/deep-darts/dataset/cropped_images \
+        --output data/processed/yolo_detect_deepdarts \
         --bbox-size 0.025
 """
 

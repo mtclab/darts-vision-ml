@@ -9,7 +9,7 @@ Computes:
 Usage:
     python src/evaluate.py \
         --model runs/darts/yolov8n_800/weights/best.pt \
-        --data data/darts.yaml \
+        --data data/processed/yolo_detect_deepdarts/darts.yaml \
         --split test \
         --conf 0.25 \
         --device 0

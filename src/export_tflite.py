@@ -4,7 +4,7 @@ Export trained YOLO model to TFLite INT8 for mobile deployment.
 Usage:
     python src/export_tflite.py \
         --weights runs/darts/yolov8n_800/weights/best.pt \
-        --data data/darts.yaml \
+        --data data/processed/yolo_detect_deepdarts/darts.yaml \
         --imgsz 800 \
         --output models/
 """
@@ -17,7 +17,7 @@ from ultralytics import YOLO
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", required=True, help="Path to best.pt")
-    parser.add_argument("--data", default="data/darts.yaml")
+    parser.add_argument("--data", default="data/processed/yolo_detect_deepdarts/darts.yaml")
     parser.add_argument("--imgsz", type=int, default=800)
     parser.add_argument("--output", default="models")
     return parser.parse_args()

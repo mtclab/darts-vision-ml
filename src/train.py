@@ -3,7 +3,7 @@ Train YOLOv8n on DeepDarts dataset using DDP across 3 GPUs.
 
 Usage:
     torchrun --nproc_per_node=3 src/train.py \
-        --data data/darts.yaml \
+        --data data/processed/yolo_detect_deepdarts/darts.yaml \
         --model yolov8n.pt \
         --epochs 50 \
         --imgsz 800 \
@@ -17,7 +17,7 @@ from ultralytics import YOLO
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="data/darts.yaml")
+    parser.add_argument("--data", default="data/processed/yolo_detect_deepdarts/darts.yaml")
     parser.add_argument("--model", default="yolov8n.pt")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--imgsz", type=int, default=800)

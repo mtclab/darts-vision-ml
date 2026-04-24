@@ -111,7 +111,7 @@ cp models/darts_detector.tflite ../darts_vision_flutter/assets/models/
 ```bash
 python src/evaluate.py \
     --model runs/darts/yolov8n_800/weights/best.pt \
-    --labels data/raw/labels.pkl \
+    --labels data/raw/deep-darts/dataset/labels.pkl \
     --conf 0.25 \
     --device 0
 ```
@@ -120,6 +120,72 @@ Output metrics:
 - **PCS** (Percent Correct Score): exact total score match
 - **MASE** (Mean Absolute Score Error)
 - Per-dart detection & localization error
+
+## 5. Training for Best Scoring Accuracy
+
+The default config gives ~98.7% mAP50 but end-to-end scoring accuracy (PCS/MASE) is limited by **bbox center approximation** and **low resolution**. For production, train with these improvements:
+
+### 5.1 Tighter Bounding Boxes
+
+Default `bbox-size=0.025` creates 50px boxes on 2000px crops. Corner localization errors blow up through homography warp.
+
+```bash
+python src/convert_dataset.py \
+    --labels data/raw/deep-darts/dataset/labels.pkl \
+    --output data/processed/yolo_detect_tight \
+    --bbox-size 0.01
+```
+
+### 5.2 Higher Resolution + Better Model
+
+`imgsz=800` downsamples 2000px crops too aggressively. Use `yolov8s` at `1280`:
+
+```bash
+torchrun --nproc_per_node=3 src/train.py \
+    --data data/processed/yolo_detect_tight/darts.yaml \
+    --model yolov8s.pt \
+    --imgsz 1280 \
+    --batch 10 \
+    --epochs 100 \
+    --patience 20 \
+    --lr0 0.005 \
+    --degrees 5 \
+    --translate 0.05 \
+    --scale 0.1 \
+    --hsv_h 0.01 \
+    --hsv_s 0.2 \
+    --hsv_v 0.2 \
+    --mosaic 0 \
+    --mixup 0 \
+    --fliplr 0 \
+    --close_mosaic 0 \
+    --project runs/darts \
+    --name yolov8s_1280_tight
+```
+
+**Why these changes:**
+- `mosaic=0`: Mixing 4 images destroys board geometry (corners from img A + darts from img B = invalid homography)
+- `fliplr=0`: Horizontal flip breaks left/right scoring on asymmetric boards
+- `degrees=5`: Boards are always upright; large rotation moves corners off-image
+- `scale=0.1`: Camera distance is fixed in your setup
+- `batch=10`: Memory tradeoff for `imgsz=1280` on 20GB GPUs
+
+### 5.3 Pose Estimation (Recommended for v2)
+
+For maximum accuracy, train **YOLOv8-pose** to directly regress 7 keypoints instead of bbox centers:
+
+```python
+from ultralytics import YOLO
+model = YOLO('yolov8n-pose.pt')
+```
+
+This eliminates the "bbox center → keypoint" approximation entirely. Requires a new converter script (not yet implemented — see `TODO` in `src/convert_dataset.py`).
+
+| Approach | mAP50 | mAP50-95 | PCS | Best For |
+|----------|-------|----------|-----|----------|
+| `yolov8n` default | 98.7% | 75.4% | ~ | Quick baseline |
+| `yolov8s` 1280 tight | ~99% | ~80% | ↑↑ | Production scoring |
+| `yolov8n-pose` | - | - | ↑↑↑ | Maximum accuracy |
 
 ## Customization
 
