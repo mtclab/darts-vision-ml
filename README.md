@@ -65,9 +65,11 @@ This writes `train/`, `val/`, `test/` folders with images + `.txt` labels.
 
 ## 2. Train (DDP on 3 GPUs)
 
+Use the `darts.yaml` generated inside the output directory (it has the correct dataset root path):
+
 ```bash
 torchrun --nproc_per_node=3 src/train.py \
-    --data data/darts.yaml \
+    --data data/processed/yolo_detect_deepdarts/darts.yaml \
     --model yolov8n.pt \
     --epochs 50 \
     --imgsz 800 \
@@ -89,7 +91,7 @@ runs/darts/yolov8n_800/weights/best.pt
 ```bash
 python src/export_tflite.py \
     --weights runs/darts/yolov8n_800/weights/best.pt \
-    --data data/darts.yaml \
+    --data data/processed/yolo_detect_deepdarts/darts.yaml \
     --imgsz 800 \
     --output models/
 ```

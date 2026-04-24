@@ -65,9 +65,34 @@ def xy_list_to_array(xy_list: list) -> np.ndarray:
     return arr
 
 
+def write_yaml(output_root: Path):
+    """Write dataset YAML with absolute path for Ultralytics.
+    Ultralytics resolves relative paths from its own datasets/ dir,
+    so absolute path is required for portability.
+    """
+    yaml_path = output_root / "darts.yaml"
+    content = f"""# YOLOv8 Dataset Configuration for Darts-Vision-ML
+# Classes: 0=dart, 1=cal_corner
+
+path: {output_root.resolve()}  # absolute dataset root dir
+train: train
+val: val
+test: test
+
+# Classes
+names:
+  0: dart
+  1: cal_corner
+"""
+    with open(yaml_path, "w") as f:
+        f.write(content)
+    print(f"Wrote {yaml_path}")
+
+
 def split_and_write(img_paths, gts, output_root: Path, test_size=0.15, val_size=0.15, random_state=42):
     """Split dataset into train/val/test and write YOLO labels."""
     output_root.mkdir(parents=True, exist_ok=True)
+    write_yaml(output_root)
 
     # First split: separate test
     train_val_idx, test_idx = train_test_split(

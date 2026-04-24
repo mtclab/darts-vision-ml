@@ -16,6 +16,7 @@ Usage:
 """
 
 import argparse
+import os
 import pickle
 import numpy as np
 from pathlib import Path
@@ -125,9 +126,9 @@ def evaluate_image(model, img_path: Path, gt_keypoints: np.ndarray, conf: float 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
-    parser.add_argument("--data", default="data/darts.yaml")
+    parser.add_argument("--data", default="data/processed/yolo_detect_deepdarts/darts.yaml")
     parser.add_argument("--split", default="test")
-    parser.add_argument("--labels", default="data/raw/labels.pkl")
+    parser.add_argument("--labels", default="data/raw/deep-darts/dataset/labels.pkl")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--device", default="0")
     args = parser.parse_args()
@@ -138,10 +139,24 @@ def main():
     # Load labels
     with open(args.labels, "rb") as f:
         data = pickle.load(f)
-    img_paths = data["img_paths"]
-    gts = data["gt"]
     
-    # TODO: filter to test split images
+    if hasattr(data, 'columns'):
+        # DataFrame format
+        img_paths = [os.path.join(str(f), str(n)) for f, n in zip(data['img_folder'], data['img_name'])]
+        gts_list = data['xy'].tolist()
+        # Convert xy lists to (7, 3) arrays
+        def xy_list_to_array(xy_list):
+            arr = np.zeros((7, 3), dtype=np.float32)
+            n = min(len(xy_list), 7)
+            arr[:n, :2] = np.array(xy_list[:n])
+            arr[:n, 2] = 1
+            return arr
+        gts = [xy_list_to_array(xy) for xy in gts_list]
+    else:
+        img_paths = data["img_paths"]
+        gts = data["gt"]
+    
+    # TODO: filter to specific split images if split file exists
     
     errors = []
     correct = 0
