@@ -56,6 +56,15 @@ def save_yolo_labels(img_name: str, keypoints: np.ndarray, output_dir: Path, bbo
         f.writelines(lines)
 
 
+def xy_list_to_array(xy_list: list) -> np.ndarray:
+    """Convert list of [x, y] points to (7, 3) array with visibility."""
+    arr = np.zeros((7, 3), dtype=np.float32)
+    n = min(len(xy_list), 7)
+    arr[:n, :2] = np.array(xy_list[:n])
+    arr[:n, 2] = 1
+    return arr
+
+
 def split_and_write(img_paths, gts, output_root: Path, test_size=0.15, val_size=0.15, random_state=42):
     """Split dataset into train/val/test and write YOLO labels."""
     output_root.mkdir(parents=True, exist_ok=True)
@@ -99,28 +108,32 @@ def split_and_write(img_paths, gts, output_root: Path, test_size=0.15, val_size=
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--labels", required=True, help="Path to labels.pkl")
-    parser.add_argument("--output", default="data/yolo", help="Output directory")
+    parser.add_argument("--output", default="data/processed/yolo_detect_deepdarts", help="Output directory")
     parser.add_argument("--images", default=None, help="Base image directory (if needed to resolve relative paths)")
     parser.add_argument("--bbox-size", type=float, default=BBOX_SIZE)
     parser.add_argument("--test-size", type=float, default=0.15)
     parser.add_argument("--val-size", type=float, default=0.15)
     args = parser.parse_args()
 
-    data = load_labels(args.labels)
+    pkl_path = Path(args.labels).resolve()
+    data = load_labels(str(pkl_path))
 
     if hasattr(data, 'columns'):
         # DataFrame with columns img_folder, img_name, bbox, xy
         print(f"Loaded {len(data)} images")
         img_paths = [os.path.join(str(f), str(n)) for f, n in zip(data['img_folder'], data['img_name'])]
-        gts = data['xy'].tolist()
+        gts = [xy_list_to_array(xy) for xy in data['xy']]
     else:
         print(f"Loaded {len(data['img_paths'])} images")
         img_paths = data['img_paths']
         gts = data['gt']
 
+    # Auto-resolve image base directory next to the .pkl if not provided
     if args.images:
         base = Path(args.images)
-        img_paths = [str(base / p) for p in img_paths]
+    else:
+        base = pkl_path.parent / "cropped_images"
+    img_paths = [str(base / p) for p in img_paths]
 
     split_and_write(
         img_paths,
