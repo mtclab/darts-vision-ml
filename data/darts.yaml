@@ -1,0 +1,12 @@
+# YOLOv8 Dataset Configuration for Darts-Vision-ML
+# Classes: 0=dart, 1=cal_corner
+
+path: ./yolo  # dataset root dir
+train: train
+val: val
+test: test
+
+# Classes
+names:
+  0: dart
+  1: cal_corner
