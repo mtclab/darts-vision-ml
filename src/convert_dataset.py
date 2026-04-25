@@ -48,9 +48,7 @@ def save_yolo_labels(
     label_dir: Path,
     bbox_size: float = BBOX_SIZE,
 ):
-    """Save one image's keypoints as YOLO .txt file.
-    keypoints shape: (7, 3) -> [cal1..cal4, dart1..dart3], last col is visibility
-    """
+    """Save one image's keypoints as YOLO .txt file."""
     lines = []
     for i in range(7):
         x, y, vis = keypoints[i]
@@ -74,11 +72,51 @@ def xy_list_to_array(xy_list: list) -> np.ndarray:
     return arr
 
 
+def build_image_lookup(search_root: Path) -> dict:
+    """Build a mapping of lowercase relative paths to actual paths."""
+    print(f"[INDEX] Scanning {search_root} for images...")
+    lookup = {}
+    exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".avif", ".heic", ".heif", ".tiff", ".tif", ".jp2", ".dng", ".mpo", ".bmp"}
+    count = 0
+    for p in search_root.rglob("*"):
+        if p.is_file() and p.suffix.lower() in exts:
+            try:
+                rel = str(p.relative_to(search_root)).lower()
+            except ValueError:
+                continue
+            lookup[rel] = p
+            count += 1
+            if count & 0x3FFF == 0:  # log every 16k, rarely triggers for small sets
+                print(f"  ...indexed {count} images")
+    print(f"[INDEX] Found {count} images")
+    return lookup
+
+
+def find_image_path(
+    folder: str, name: str, search_root: Path, lookup: dict
+) -> Path:
+    """Resolve actual image path, trying exact then lookup."""
+    # Exact path under search_root
+    exact = search_root / folder / name
+    if exact.exists():
+        return exact
+
+    # Lookup via lowercase relative path
+    rel_candidates = [
+        f"{folder}/{name}".lower(),
+        f"cropped_images/{folder}/{name}".lower(),
+        f"images/{folder}/{name}".lower(),
+        name.lower(),
+    ]
+    for rel in rel_candidates:
+        if rel in lookup:
+            return lookup[rel]
+
+    return exact  # fallback so caller can report missing
+
+
 def write_yaml(output_root: Path):
-    """Write dataset YAML with absolute path for Ultralytics.
-    Ultralytics resolves relative paths from its own datasets/ dir,
-    so absolute path is required for portability.
-    """
+    """Write dataset YAML with absolute path for Ultralytics."""
     yaml_path = output_root / "darts.yaml"
     content = f"""# YOLOv8 Dataset Configuration for Darts-Vision-ML
 # Classes: 0=dart, 1=cal_corner
@@ -99,8 +137,7 @@ names:
 
 
 def split_and_write(
-    img_paths,
-    gts,
+    img_entries,
     output_root: Path,
     bbox_size: float,
     test_size=0.15,
@@ -110,18 +147,16 @@ def split_and_write(
     """Split dataset into train/val/test and write YOLO labels."""
     output_root.mkdir(parents=True, exist_ok=True)
 
-    # YOLO structure: images/ and labels/ per split
     for s in ["train", "val", "test"]:
         (output_root / "images" / s).mkdir(parents=True, exist_ok=True)
         (output_root / "labels" / s).mkdir(parents=True, exist_ok=True)
 
     write_yaml(output_root)
 
-    # First split: separate test
+    indices = list(range(len(img_entries)))
     train_val_idx, test_idx = train_test_split(
-        range(len(img_paths)), test_size=test_size, random_state=random_state
+        indices, test_size=test_size, random_state=random_state
     )
-    # Second split: separate val from train
     train_idx, val_idx = train_test_split(
         train_val_idx,
         test_size=val_size / (1 - test_size),
@@ -131,16 +166,12 @@ def split_and_write(
     splits = {"train": train_idx, "val": val_idx, "test": test_idx}
 
     missing_images = 0
-    for split_name, indices in splits.items():
+    for split_name, idxs in splits.items():
         img_dir = output_root / "images" / split_name
         label_dir = output_root / "labels" / split_name
 
-        for idx in indices:
-            img_path = img_paths[idx]
-            img_name = Path(img_path).name
-
-            # Copy image
-            src_img = Path(img_path)
+        for idx in idxs:
+            src_img, img_name, gt = img_entries[idx]
             if src_img.exists():
                 shutil.copy2(src_img, img_dir / img_name)
             else:
@@ -148,11 +179,10 @@ def split_and_write(
                 if missing_images <= 5:
                     print(f"[WARN] Missing image: {src_img}")
 
-            # Write labels
-            save_yolo_labels(img_name, gts[idx], label_dir, bbox_size)
+            save_yolo_labels(img_name, gt, label_dir, bbox_size)
 
     if missing_images:
-        print(f"[WARN] {missing_images}/{len(img_paths)} images missing")
+        print(f"[WARN] {missing_images}/{len(img_entries)} images missing")
 
     print(f"Splits written to {output_root}")
     for name, idxs in splits.items():
@@ -162,11 +192,27 @@ def split_and_write(
         print(f"  {name}: {len(idxs)} labels, {n_imgs} images")
 
 
+def try_extract_zip(zip_path: Path, dest: Path) -> bool:
+    """Extract zip if it exists and destination is empty."""
+    if not zip_path.exists():
+        return False
+    if dest.exists() and any(dest.iterdir()):
+        return False
+    print(f"[EXTRACT] {zip_path}")
+    shutil.unpack_archive(str(zip_path), str(dest.parent if zip_path.name.lower() == "cropped_images.zip" else dest))
+    # Handle nested zip: zip contains a single folder with same name
+    nested = dest.parent / zip_path.stem / "cropped_images"
+    if nested.exists() and nested.is_dir() and not (dest.exists() and any(dest.iterdir())):
+        # Move contents up one level
+        for item in nested.iterdir():
+            shutil.move(str(item), str(dest / item.name))
+        (dest.parent / zip_path.stem).rmdir()
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--labels", required=True, help="Path to labels.pkl"
-    )
+    parser.add_argument("--labels", required=True, help="Path to labels.pkl")
     parser.add_argument(
         "--output",
         default="data/processed/yolo_detect_deepdarts",
@@ -177,9 +223,7 @@ def main():
         default=None,
         help="Base image directory (if needed to resolve relative paths)",
     )
-    parser.add_argument(
-        "--bbox-size", type=float, default=BBOX_SIZE
-    )
+    parser.add_argument("--bbox-size", type=float, default=BBOX_SIZE)
     parser.add_argument("--test-size", type=float, default=0.15)
     parser.add_argument("--val-size", type=float, default=0.15)
     args = parser.parse_args()
@@ -198,26 +242,24 @@ def main():
 
     if not pkl_path.exists():
         print(f"[ERROR] {pkl_path} not found.")
-        print(
-            "Download the DeepDarts dataset first:\n"
-            "  https://ieee-dataport.org/open-access/deepdarts-dataset"
-        )
+        print("Download the DeepDarts dataset first:")
+        print("  https://ieee-dataport.org/open-access/deepdarts-dataset")
         sys.exit(1)
 
     data = load_labels(str(pkl_path))
 
     if hasattr(data, "columns"):
         print(f"Loaded {len(data)} images")
-        img_paths = [
-            os.path.join(str(f), str(n))
-            for f, n in zip(data["img_folder"], data["img_name"])
-        ]
+        folders = data["img_folder"].astype(str).tolist()
+        names = data["img_name"].astype(str).tolist()
         gts = [xy_list_to_array(xy) for xy in data["xy"]]
     else:
         print(f"Loaded {len(data['img_paths'])} images")
-        img_paths = data["img_paths"]
+        folders = [str(Path(p).parent) for p in data["img_paths"]]
+        names = [str(Path(p).name) for p in data["img_paths"]]
         gts = data["gt"]
 
+    # Determine base directory for images
     if args.images:
         base = Path(args.images)
     else:
@@ -228,12 +270,33 @@ def main():
     if img_zip.exists() and (not base.exists() or not any(base.iterdir())):
         print(f"[EXTRACT] {img_zip}")
         shutil.unpack_archive(str(img_zip), str(pkl_path.parent))
+        # Handle double-wrapped zip: cropped_images/cropped_images/...
+        nested = base / "cropped_images"
+        if nested.exists() and nested.is_dir():
+            for item in nested.iterdir():
+                shutil.move(str(item), str(base / item.name))
+            nested.rmdir()
 
-    img_paths = [str(base / p) for p in img_paths]
+    # Build image lookup from dataset root (handles any nesting depth)
+    search_root = pkl_path.parent
+    img_lookup = build_image_lookup(search_root)
+
+    img_entries = []
+    for folder, name, gt in zip(folders, names, gts):
+        src = find_image_path(folder, name, search_root, img_lookup)
+        img_entries.append((src, name, gt))
+
+    # Sanity check
+    found = sum(1 for src, _, _ in img_entries if src.exists())
+    print(f"[CHECK] {found}/{len(img_entries)} images resolved")
+    if found == 0:
+        print(f"[ERROR] Zero images found under {search_root}")
+        print("Verify your dataset is extracted correctly:")
+        print(f"  ls {search_root}")
+        sys.exit(1)
 
     split_and_write(
-        img_paths,
-        gts,
+        img_entries,
         Path(args.output),
         bbox_size=args.bbox_size,
         test_size=args.test_size,

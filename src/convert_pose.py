@@ -86,6 +86,47 @@ def save_pose_label(img_name: str, keypoints: np.ndarray, label_dir: Path):
         f.write(line)
 
 
+def build_image_lookup(search_root: Path) -> dict:
+    """Build a mapping of lowercase relative paths to actual paths."""
+    print(f"[INDEX] Scanning {search_root} for images...")
+    lookup = {}
+    exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".avif", ".heic", ".heif", ".tiff", ".tif", ".jp2", ".dng", ".mpo", ".bmp"}
+    count = 0
+    for p in search_root.rglob("*"):
+        if p.is_file() and p.suffix.lower() in exts:
+            try:
+                rel = str(p.relative_to(search_root)).lower()
+            except ValueError:
+                continue
+            lookup[rel] = p
+            count += 1
+            if count & 0x3FFF == 0:
+                print(f"  ...indexed {count} images")
+    print(f"[INDEX] Found {count} images")
+    return lookup
+
+
+def find_image_path(
+    folder: str, name: str, search_root: Path, lookup: dict
+) -> Path:
+    """Resolve actual image path."""
+    exact = search_root / folder / name
+    if exact.exists():
+        return exact
+
+    rel_candidates = [
+        f"{folder}/{name}".lower(),
+        f"cropped_images/{folder}/{name}".lower(),
+        f"images/{folder}/{name}".lower(),
+        name.lower(),
+    ]
+    for rel in rel_candidates:
+        if rel in lookup:
+            return lookup[rel]
+
+    return exact
+
+
 def write_yaml(output_root: Path):
     """Write pose dataset YAML for Ultralytics."""
     yaml_path = output_root / "pose.yaml"
@@ -113,8 +154,7 @@ flip_idx: [1, 0, 3, 2, 4, 5, 6]  # left-right swaps for corner pairs
 
 
 def split_and_write(
-    img_paths,
-    keypoints_list,
+    img_entries,
     output_root: Path,
     test_size=0.15,
     val_size=0.15,
@@ -129,8 +169,9 @@ def split_and_write(
 
     write_yaml(output_root)
 
+    indices = list(range(len(img_entries)))
     train_val_idx, test_idx = train_test_split(
-        range(len(img_paths)), test_size=test_size, random_state=random_state
+        indices, test_size=test_size, random_state=random_state
     )
     train_idx, val_idx = train_test_split(
         train_val_idx,
@@ -141,14 +182,12 @@ def split_and_write(
     splits = {"train": train_idx, "val": val_idx, "test": test_idx}
 
     missing_images = 0
-    for split_name, indices in splits.items():
+    for split_name, idxs in splits.items():
         img_dir = output_root / "images" / split_name
         label_dir = output_root / "labels" / split_name
 
-        for idx in indices:
-            img_path = img_paths[idx]
-            img_name = Path(img_path).name
-            src_img = Path(img_path)
+        for idx in idxs:
+            src_img, img_name, gt = img_entries[idx]
             if src_img.exists():
                 shutil.copy2(src_img, img_dir / img_name)
             else:
@@ -156,10 +195,10 @@ def split_and_write(
                 if missing_images <= 5:
                     print(f"[WARN] Missing image: {src_img}")
 
-            save_pose_label(img_name, keypoints_list[idx], label_dir)
+            save_pose_label(img_name, gt, label_dir)
 
     if missing_images:
-        print(f"[WARN] {missing_images}/{len(img_paths)} images missing")
+        print(f"[WARN] {missing_images}/{len(img_entries)} images missing")
 
     print(f"Splits written to {output_root}")
     for name, idxs in splits.items():
@@ -200,24 +239,21 @@ def main():
 
     if not pkl_path.exists():
         print(f"[ERROR] {pkl_path} not found.")
-        print(
-            "Download the DeepDarts dataset first:\n"
-            "  https://ieee-dataport.org/open-access/deepdarts-dataset"
-        )
+        print("Download the DeepDarts dataset first:")
+        print("  https://ieee-dataport.org/open-access/deepdarts-dataset")
         sys.exit(1)
 
     data = load_labels(str(pkl_path))
 
     if hasattr(data, "columns"):
         print(f"Loaded {len(data)} images (DataFrame)")
-        img_paths = [
-            os.path.join(str(f), str(n))
-            for f, n in zip(data["img_folder"], data["img_name"])
-        ]
+        folders = data["img_folder"].astype(str).tolist()
+        names = data["img_name"].astype(str).tolist()
         kpts_list = [xy_list_to_array(xy) for xy in data["xy"]]
     else:
         print(f"Loaded {len(data['img_paths'])} images (dict)")
-        img_paths = data["img_paths"]
+        folders = [str(Path(p).parent) for p in data["img_paths"]]
+        names = [str(Path(p).name) for p in data["img_paths"]]
         gts = data["gt"]
 
         def xy_array_to_pose(arr):
@@ -239,12 +275,30 @@ def main():
     if img_zip.exists() and (not base.exists() or not any(base.iterdir())):
         print(f"[EXTRACT] {img_zip}")
         shutil.unpack_archive(str(img_zip), str(pkl_path.parent))
+        # Handle double-wrapped zip
+        nested = base / "cropped_images"
+        if nested.exists() and nested.is_dir():
+            for item in nested.iterdir():
+                shutil.move(str(item), str(base / item.name))
+            nested.rmdir()
 
-    img_paths = [str(base / p) for p in img_paths]
+    # Build image lookup
+    search_root = pkl_path.parent
+    img_lookup = build_image_lookup(search_root)
+
+    img_entries = []
+    for folder, name, gt in zip(folders, names, kpts_list):
+        src = find_image_path(folder, name, search_root, img_lookup)
+        img_entries.append((src, name, gt))
+
+    found = sum(1 for src, _, _ in img_entries if src.exists())
+    print(f"[CHECK] {found}/{len(img_entries)} images resolved")
+    if found == 0:
+        print(f"[ERROR] Zero images found under {search_root}")
+        sys.exit(1)
 
     split_and_write(
-        img_paths,
-        kpts_list,
+        img_entries,
         Path(args.output),
         test_size=args.test_size,
         val_size=args.val_size,
