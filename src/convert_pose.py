@@ -148,6 +148,23 @@ def main():
     args = parser.parse_args()
 
     pkl_path = Path(args.labels).resolve()
+    
+    # Auto-extract labels_pkl.zip if present
+    pkl_zip = pkl_path.parent / "labels_pkl.zip"
+    if pkl_zip.exists() and not pkl_path.exists():
+        print(f"[EXTRACT] {pkl_zip}")
+        shutil.unpack_archive(str(pkl_zip), str(pkl_path.parent))
+        nested = pkl_path.parent / "labels_pkl" / "labels.pkl"
+        if nested.exists():
+            shutil.move(str(nested), str(pkl_path))
+            (pkl_path.parent / "labels_pkl").rmdir()
+
+    if not pkl_path.exists():
+        print(f"[ERROR] {pkl_path} not found.")
+        print("Download the DeepDarts dataset first:")
+        print("  https://ieee-dataport.org/open-access/deepdarts-dataset")
+        return
+
     data = load_labels(str(pkl_path))
 
     if hasattr(data, "columns"):
@@ -170,6 +187,13 @@ def main():
         base = Path(args.images)
     else:
         base = pkl_path.parent / "cropped_images"
+    
+    # Auto-extract cropped_images.zip if present
+    img_zip = pkl_path.parent / "cropped_images.zip"
+    if img_zip.exists() and (not base.exists() or not any(base.iterdir())):
+        print(f"[EXTRACT] {img_zip}")
+        shutil.unpack_archive(str(img_zip), str(pkl_path.parent))
+
     img_paths = [str(base / p) for p in img_paths]
 
     split_and_write(
