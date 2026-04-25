@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import sys
 from pathlib import Path
 from ultralytics import YOLO
 
@@ -38,10 +39,21 @@ def parse_args():
 def main():
     args = parse_args()
 
+    # Resolve data path relative to project root
+    project_root = Path(__file__).resolve().parent.parent
+    data_path = Path(args.data)
+    if not data_path.is_absolute():
+        data_path = project_root / data_path
+    if not data_path.exists():
+        print(f"[ERROR] Data config not found: {data_path}")
+        print(f"  CWD: {Path.cwd()}")
+        print(f"  Project root: {project_root}")
+        sys.exit(1)
+
     model = YOLO(args.model)
 
     results = model.train(
-        data=args.data,
+        data=str(data_path),
         epochs=args.epochs,
         imgsz=args.imgsz,
         batch=args.batch,

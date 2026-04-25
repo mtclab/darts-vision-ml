@@ -1,55 +1,28 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-*.egg-info/
-dist/
-build/
-*.egg
-
-# Virtual environments
-venv/
-.venv/
-env/
-
-# Datasets (download separately)
-data/raw/
-data/processed/
-
-# Auto-generated configs (paths are environment-specific)
-configs/dataset_*.yaml
-
-# Model artifacts
+data/
 runs/
+models/
 weights/
-*.pt
-*.onnx
-*.tflite
-*.engine
-
-# VLM training data and results
-data/processed/vlm_train/
-results/
-.cache/
-
-# LoRA / HuggingFace cache
-.hf_cache/
-models--*/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
+.venv/
+.venv
+__pycache__/
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Jupyter
-.ipynb_checkpoints/
+# IDEs
+.vscode/
+.idea/
+*.iml
 
-# Logs
-*.log
+# Training artifacts
+*.pt
+*.onnx
+*.tflite
+*.engine
+*.mlmodel
 wandb/
