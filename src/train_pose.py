@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+from pathlib import Path
 from ultralytics import YOLO
 
 
@@ -39,13 +40,14 @@ def main():
 
     model = YOLO(args.model)
 
-    model.train(
+    results = model.train(
         data=args.data,
         epochs=args.epochs,
         imgsz=args.imgsz,
         batch=args.batch,
         project=args.project,
         name=args.name,
+        exist_ok=True,
         patience=args.patience,
         lr0=args.lr0,
         lrf=args.lrf,
@@ -74,7 +76,9 @@ def main():
         save_period=5,
     )
 
-    print(f"Training complete. Best model: {args.project}/{args.name}/weights/best.pt")
+    save_dir = getattr(results, "save_dir", Path(args.project) / args.name)
+    best = Path(save_dir) / "weights" / "best.pt"
+    print(f"Training complete. Best model: {best}")
 
 
 if __name__ == "__main__":

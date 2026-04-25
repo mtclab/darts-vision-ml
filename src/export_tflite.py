@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import shutil
 from pathlib import Path
 from ultralytics import YOLO
 
@@ -20,35 +21,46 @@ def parse_args():
     parser.add_argument("--data", default="data/processed/yolo_detect_deepdarts/darts.yaml")
     parser.add_argument("--imgsz", type=int, default=800)
     parser.add_argument("--output", default="models")
+    parser.add_argument("--name", default="darts_detector.tflite", help="Output filename")
+    parser.add_argument("--int8", action="store_true", default=True, help="INT8 quantization")
+    parser.add_argument("--no-int8", action="store_true", help="Disable INT8, use float32")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    
+    int8 = not args.no_int8 if args.no_int8 else args.int8
+
     model = YOLO(args.weights)
-    
-    # Export to TFLite with INT8 quantization
-    model.export(
+
+    # YOLO's built-in export returns file path
+    export_path = model.export(
         format="tflite",
         imgsz=args.imgsz,
-        int8=True,
-        data=args.data,
+        int8=int8,
+        data=args.data if int8 else None,
         simplify=True,
     )
-    
-    # Move exported model to models/
-    weights_path = Path(args.weights)
-    src = weights_path.parent / "best_int8.tflite"
-    dst = Path(args.output) / "darts_detector.tflite"
+
+    src = Path(export_path)
+    dst = Path(args.output) / args.name
     dst.parent.mkdir(parents=True, exist_ok=True)
-    
+
+    if not src.exists():
+        alt = src.with_name("best_int8.tflite")
+        src = alt if alt.exists() else src
+
     if src.exists():
-        dst.write_bytes(src.read_bytes())
+        shutil.copy2(str(src), str(dst))
+        size_mb = dst.stat().st_size / (1024 * 1024)
         print(f"TFLite model saved to {dst}")
+        print(f"  Size: {size_mb:.1f} MB")
+        print(f"  INT8: {int8}")
     else:
-        print(f"Export output not found at {src}")
-        print("Check runs/darts/*/weights/ for .tflite files")
+        print(f"[ERROR] Export output not found at {src}")
+        print("Check the run directory for .tflite files:")
+        for f in Path(args.weights).parent.glob("*.tflite"):
+            print(f"  {f}")
 
 
 if __name__ == "__main__":

@@ -55,7 +55,9 @@ def train_darts_detect(args):
         mixup=0.1,
     )
 
-    print(f"\n[TRAIN] Best model: {RUN_DIR / 'train' / 'weights' / 'best.pt'}")
+    save_dir = getattr(results, "save_dir", RUN_DIR / "train")
+    best = Path(save_dir) / "weights" / "best.pt"
+    print(f"\n[TRAIN] Best model: {best}")
     return results
 
 

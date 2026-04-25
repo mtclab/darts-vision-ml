@@ -368,6 +368,11 @@ def main():
     parser.add_argument("--save-csv", type=str, default=None, help="Path to save per-image CSV")
     args = parser.parse_args()
 
+    for p in (args.cal_model, args.pose_model):
+        if not Path(p).exists():
+            print(f"[ERROR] Model not found: {p}")
+            return
+
     backend = args.backend
     if backend == "auto":
         backend = "tflite" if args.cal_model.endswith(".tflite") else "pytorch"

@@ -18,6 +18,7 @@ Usage:
 import argparse
 import os
 import pickle
+import sys
 import numpy as np
 from pathlib import Path
 from ultralytics import YOLO
@@ -133,6 +134,17 @@ def main():
     parser.add_argument("--device", default="0")
     args = parser.parse_args()
     
+    model_path = Path(args.model)
+    if not model_path.exists():
+        print(f"[ERROR] Model not found: {model_path}")
+        # Try to find alternative runs with suffix
+        parent = model_path.parent.parent
+        prefix = model_path.parent.name
+        if parent.exists():
+            for alt in sorted(parent.glob(f"{prefix}*/weights/best.pt")):
+                print(f"  Found alternative: {alt}")
+        sys.exit(1)
+
     model = YOLO(args.model)
     model.to(args.device)
     

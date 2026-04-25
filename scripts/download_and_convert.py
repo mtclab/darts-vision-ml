@@ -282,19 +282,41 @@ def main():
     args = parser.parse_args()
 
     pkl_path = RAW_DIR / "labels.pkl"
+    pkl_zip = RAW_DIR / "labels_pkl.zip"
+    img_dir = RAW_DIR / "cropped_images"
+    img_zip = RAW_DIR / "cropped_images.zip"
+
+    # Auto-extract zip files if present
+    if pkl_zip.exists() and not pkl_path.exists():
+        print(f"[EXTRACT] {pkl_zip}")
+        shutil.unpack_archive(str(pkl_zip), str(RAW_DIR))
+        # The zip might contain a nested directory; flatten if needed
+        nested = RAW_DIR / "labels_pkl" / "labels.pkl"
+        if nested.exists():
+            shutil.move(str(nested), str(pkl_path))
+            (RAW_DIR / "labels_pkl").rmdir()
+
+    if img_zip.exists() and (not img_dir.exists() or not any(img_dir.iterdir())):
+        print(f"[EXTRACT] {img_zip}")
+        shutil.unpack_archive(str(img_zip), str(RAW_DIR))
+        # The zip might contain a nested directory; flatten if needed
+        nested = RAW_DIR / "cropped_images"
+        if nested.exists() and (RAW_DIR / "cropped_images_1").exists():
+            # Edge case: zip created a sibling dir; nothing to do
+            pass
+
     if not pkl_path.exists():
         print(f"[ERROR] {pkl_path} not found.")
         print("Download the DeepDarts dataset first:")
         print("  1. Get cropped_images.zip and labels_pkl.zip from https://ieee-dataport.org/open-access/deepdarts-dataset")
-        print("  2. Extract to data/raw/deep-darts/dataset/")
+        print(f"  2. Place them in {RAW_DIR}")
         print("     unzip cropped_images.zip -> data/raw/deep-darts/dataset/cropped_images/")
         print("     unzip labels_pkl.zip     -> data/raw/deep-darts/dataset/labels.pkl")
         return
 
-    img_dir = RAW_DIR / "cropped_images"
     if not img_dir.exists() or not any(img_dir.iterdir()):
         print(f"[ERROR] {img_dir} not found or empty.")
-        print("Extract cropped_images.zip to data/raw/deep-darts/dataset/cropped_images/")
+        print(f"Place cropped_images.zip in {RAW_DIR} and re-run.")
         return
 
     print(f"[INFO] Loading labels.pkl (split={args.split or 'all'})...")
