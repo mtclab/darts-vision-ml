@@ -92,16 +92,34 @@ def build_image_lookup(search_root: Path) -> dict:
     return lookup
 
 
+def build_parent_lookup(lookup: dict) -> dict:
+    """Build a lookup by (parent_folder_name, basename) for disambiguation."""
+    parent = {}
+    for rel, p in lookup.items():
+        parts = Path(rel).parts
+        if len(parts) < 2:
+            continue
+        # Last folder before filename
+        folder_name = parts[-2].lower()
+        basename = parts[-1].lower()
+        parent[(folder_name, basename)] = p
+    return parent
+
+
 def find_image_path(
-    folder: str, name: str, search_root: Path, lookup: dict
+    folder: str, name: str, search_root: Path, lookup: dict, parent_lookup: dict
 ) -> Path:
-    """Resolve actual image path, trying exact then lookup."""
-    # Exact path under search_root
+    """Resolve actual image path."""
     exact = search_root / folder / name
     if exact.exists():
         return exact
 
-    # Lookup via lowercase relative path
+    # Most robust: match by (parent_folder, basename). Handles any nesting depth.
+    key = (folder.lower(), name.lower())
+    if key in parent_lookup:
+        return parent_lookup[key]
+
+    # Fallback: full relative path candidates
     rel_candidates = [
         f"{folder}/{name}".lower(),
         f"cropped_images/{folder}/{name}".lower(),
@@ -280,10 +298,11 @@ def main():
     # Build image lookup from dataset root (handles any nesting depth)
     search_root = pkl_path.parent
     img_lookup = build_image_lookup(search_root)
+    parent_lookup = build_parent_lookup(img_lookup)
 
     img_entries = []
     for folder, name, gt in zip(folders, names, gts):
-        src = find_image_path(folder, name, search_root, img_lookup)
+        src = find_image_path(folder, name, search_root, img_lookup, parent_lookup)
         img_entries.append((src, name, gt))
 
     # Sanity check

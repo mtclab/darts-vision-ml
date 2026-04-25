@@ -106,13 +106,30 @@ def build_image_lookup(search_root: Path) -> dict:
     return lookup
 
 
+def build_parent_lookup(lookup: dict) -> dict:
+    """Build a lookup by (parent_folder_name, basename) for disambiguation."""
+    parent = {}
+    for rel, p in lookup.items():
+        parts = Path(rel).parts
+        if len(parts) < 2:
+            continue
+        folder_name = parts[-2].lower()
+        basename = parts[-1].lower()
+        parent[(folder_name, basename)] = p
+    return parent
+
+
 def find_image_path(
-    folder: str, name: str, search_root: Path, lookup: dict
+    folder: str, name: str, search_root: Path, lookup: dict, parent_lookup: dict
 ) -> Path:
     """Resolve actual image path."""
     exact = search_root / folder / name
     if exact.exists():
         return exact
+
+    key = (folder.lower(), name.lower())
+    if key in parent_lookup:
+        return parent_lookup[key]
 
     rel_candidates = [
         f"{folder}/{name}".lower(),
@@ -285,10 +302,11 @@ def main():
     # Build image lookup
     search_root = pkl_path.parent
     img_lookup = build_image_lookup(search_root)
+    parent_lookup = build_parent_lookup(img_lookup)
 
     img_entries = []
     for folder, name, gt in zip(folders, names, kpts_list):
-        src = find_image_path(folder, name, search_root, img_lookup)
+        src = find_image_path(folder, name, search_root, img_lookup, parent_lookup)
         img_entries.append((src, name, gt))
 
     found = sum(1 for src, _, _ in img_entries if src.exists())
