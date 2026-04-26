@@ -3,6 +3,25 @@
 On-device automatic darts scoring — model training & evaluation.
 Trains a YOLOv8n object detector to locate dart tips and board calibration corners, then exports to INT8 TFLite for the Flutter app.
 
+## Use Cases
+
+| # | Use Case | Details |
+|---|----------|---------|
+| 1 | **Train board calibration model** | YOLO pose with 4 keypoints for board corners → homography mapping |
+| 2 | **Train dart detection model** | YOLO detection (bbox) or pose (7 keypoints) for dart tip scoring |
+| 3 | **Convert DeepDarts dataset** | `labels.pkl` → YOLO detection `.txt` or pose `.txt` format |
+| 4 | **Export INT8 TFLite** | Quantized `tflite` for on-device inference, ~3–6 MB |
+| 5 | **Evaluate end-to-end accuracy** | PCS / MASE metrics, compare approaches (detect vs pose vs VLM) |
+| 6 | **Multi-GPU distributed training** | `torchrun --nproc_per_node=3` with DDP on CUDA |
+| 7 | **Hyperparameter tuning** | `imgsz`, `bbox-size`, `epochs`, `patience`, `mosaic`, `fliplr` |
+| 8 | **VLM benchmark comparison** | Test cloud Gemini vs on-device Qwen vs self-hosted Ollama |
+| 9 | **Model size vs accuracy tradeoff** | `yolov8n` (fast) vs `yolov8s` (accurate) vs pose (maximum) |
+| 10 | **Generate scoring from keypoints** | Board geometry + detected tips → T20, S5, D16 |
+| 11 | **Cross-platform model integration** | Copy `.tflite` to `darts_vision_flutter/assets/models/` |
+| 12 | **Reproduce paper results** | DeepDarts evaluation on PCS / MASE public metrics |
+
+
+
 ## Project Structure
 
 ```
@@ -201,7 +220,7 @@ Export to TFLite:
 
 ```bash
 python src/export_tflite.py \
-    --weights runs/darts_pose/yolov8n_pose_1280/weights/best.pt \
+    --weights runs/pose/runs/darts_pose/yolov8n_pose_1280/weights/best.pt \
     --data data/processed/yolo_pose_darts/pose.yaml \
     --imgsz 1280 \
     --output models/
