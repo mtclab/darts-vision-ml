@@ -30,7 +30,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    int8 = not args.no_int8 if args.no_int8 else args.int8
+    int8 = args.int8
 
     model = YOLO(args.weights)
 
@@ -38,8 +38,9 @@ def main():
     export_path = model.export(
         format="tflite",
         imgsz=args.imgsz,
-        int8=int8,
-        data=args.data if int8 else None,
+        int8=args.int8,
+        data=args.data if args.int8 else None,
+        fraction=args.fraction if args.int8 else None,
         simplify=True,
     )
 
