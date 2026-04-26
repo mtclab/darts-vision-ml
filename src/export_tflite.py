@@ -22,8 +22,9 @@ def parse_args():
     parser.add_argument("--imgsz", type=int, default=800)
     parser.add_argument("--output", default="models")
     parser.add_argument("--name", default="darts_detector.tflite", help="Output filename")
-    parser.add_argument("--int8", action="store_true", default=True, help="INT8 quantization")
-    parser.add_argument("--no-int8", action="store_true", help="Disable INT8, use float32")
+    parser.add_argument("--fraction", type=float, default=0.15, help="Fraction of val set for INT8 calibration (default: 0.15, ~15%% of images)")
+    parser.add_argument("--int8", action="store_true", default=True, help="Enable INT8 quantization (default)")
+    parser.add_argument("--no-int8", dest="int8", action="store_false", help="Disable INT8, export float32")
     return parser.parse_args()
 
 
